@@ -1,0 +1,51 @@
+# ─── Nexus default configuration ──────────────────────────────────────
+# Anything here can be overridden by environment variables (NEXUS_*) or a
+# user config at ~/.nexus/config.yaml.
+
+# Active model in "provider:model" form. Overridden by NEXUS_MODEL.
+model: "ollama:llama3.1"
+
+# Optional separate (usually cheaper/local) model for reflection & summaries.
+reflection_model: "ollama:llama3.1"
+
+# Embedding model used by the memory subsystem (local by default).
+embedding_model: "ollama:nomic-embed-text"
+
+agent:
+  max_steps: 25            # max think→act iterations per task
+  temperature: 0.7
+  system_prompt: null      # null = use the built-in default prompt
+
+memory:
+  enabled: true
+  short_term_max_tokens: 6000   # summarize the conversation past this budget
+  retrieval_top_k: 5            # facts/skills injected per turn
+
+safety:
+  # Policy per risk tier: "auto" (run), "confirm" (ask), or "deny" (block).
+  policy:
+    low: auto
+    medium: confirm
+    high: confirm
+    critical: deny
+  # Commands matching these (regex, case-insensitive) are always critical.
+  deny_patterns:
+    - "rm\\s+-rf\\s+/"
+    - "mkfs"
+    - ":\\(\\)\\s*\\{.*\\};:"   # fork bomb
+    - "dd\\s+if=.*of=/dev/"
+  # Filesystem writes restricted to these roots (empty = no path restriction).
+  allowed_write_roots: []
+
+tools:
+  enabled:
+    - shell
+    - filesystem
+    - python_exec
+    - web
+    - gui
+    - browser
+
+skills:
+  enabled: true
+  reflect_after_tasks: true   # run self-improvement reflection after each task

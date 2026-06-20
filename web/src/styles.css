@@ -1,0 +1,57 @@
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --magenta: #bc8cff;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+.app { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+  padding: 16px; overflow-y: auto;
+}
+.sidebar h1 { font-size: 20px; margin: 0 0 8px; }
+.sidebar h2 { font-size: 13px; text-transform: uppercase; color: var(--dim); margin-top: 24px; }
+.sidebar .model { font-size: 13px; color: var(--dim); }
+.sidebar ul { list-style: none; padding: 0; margin: 0; }
+.sidebar li { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+
+.chat { flex: 1; display: flex; flex-direction: column; }
+.log { flex: 1; overflow-y: auto; padding: 20px; }
+.line { padding: 6px 10px; margin: 4px 0; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.line.user { background: #1f6feb22; border-left: 3px solid var(--accent); }
+.line.assistant { background: #161b22; }
+.line.tool { color: var(--accent); font-family: ui-monospace, monospace; font-size: 13px; }
+.line.result { color: var(--dim); font-family: ui-monospace, monospace; font-size: 13px; }
+.line.note { color: var(--magenta); font-size: 13px; }
+.dim { color: var(--dim); }
+
+.composer { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
+.composer input {
+  flex: 1; padding: 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font-size: 15px;
+}
+.composer button, .modal-actions button {
+  padding: 12px 20px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent); color: #0d1117; font-weight: 600;
+}
+.composer button:disabled { opacity: 0.5; cursor: default; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: #0008; display: flex;
+  align-items: center; justify-content: center;
+}
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 460px; }
+.modal pre { background: var(--bg); padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-actions .deny { background: var(--red); color: #fff; }
+.modal-actions .allow { background: var(--green); color: #04260f; }

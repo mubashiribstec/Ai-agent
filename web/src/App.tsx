@@ -1,0 +1,135 @@
+import { useEffect, useRef, useState } from "react";
+import { ApprovalRequest, NexusEvent, NexusSocket, getConfig, getSkills } from "./api";
+
+interface LogLine {
+  kind: "assistant" | "tool" | "result" | "note" | "user";
+  text: string;
+  ok?: boolean;
+}
+
+export function App() {
+  const [model, setModel] = useState<string>("…");
+  const [skills, setSkills] = useState<{ name: string; description: string; uses: number }[]>([]);
+  const [log, setLog] = useState<LogLine[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const sock = useRef<NexusSocket | null>(null);
+  const bottom = useRef<HTMLDivElement | null>(null);
+
+  // Append to the streaming assistant line, or start a new one.
+  const pushAssistantToken = (text: string) =>
+    setLog((l) => {
+      const last = l[l.length - 1];
+      if (last && last.kind === "assistant") {
+        return [...l.slice(0, -1), { ...last, text: last.text + text }];
+      }
+      return [...l, { kind: "assistant", text }];
+    });
+
+  const handleEvent = (ev: NexusEvent) => {
+    switch (ev.type) {
+      case "token":
+        pushAssistantToken(String(ev.text ?? ""));
+        break;
+      case "tool_call":
+        setLog((l) => [...l, { kind: "tool", text: `→ ${ev.tool} ${JSON.stringify(ev.arguments ?? {})}` }]);
+        break;
+      case "tool_result":
+        setLog((l) => [...l, { kind: "result", text: String(ev.output ?? ""), ok: Boolean(ev.ok) }]);
+        break;
+      case "memory":
+        setLog((l) => [...l, { kind: "note", text: `🧠 recalled ${ev.facts} facts, ${ev.skills} skills` }]);
+        break;
+      case "skill":
+        setLog((l) => [...l, { kind: "note", text: `✨ learned ${ev.facts} fact(s)${ev.skill ? `, skill '${ev.skill}'` : ""}` }]);
+        refreshSkills();
+        break;
+      case "approval_required":
+        setApproval(ev as unknown as ApprovalRequest);
+        break;
+      case "done":
+        setBusy(false);
+        break;
+    }
+  };
+
+  const refreshSkills = () => getSkills().then((s) => setSkills(s.skills)).catch(() => {});
+
+  useEffect(() => {
+    getConfig().then((c) => setModel(String(c.model ?? "unknown"))).catch(() => setModel("offline"));
+    refreshSkills();
+    sock.current = new NexusSocket(handleEvent);
+    return () => sock.current?.close();
+  }, []);
+
+  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [log]);
+
+  const send = () => {
+    if (!input.trim() || busy) return;
+    setLog((l) => [...l, { kind: "user", text: input }]);
+    sock.current?.sendTask(input);
+    setInput("");
+    setBusy(true);
+  };
+
+  const resolve = (allowed: boolean) => {
+    if (approval) sock.current?.resolveApproval(approval.id, allowed);
+    setApproval(null);
+  };
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <h1>🧠 Nexus</h1>
+        <div className="model">model: <b>{model}</b></div>
+        <h2>Learned skills</h2>
+        {skills.length === 0 && <p className="dim">none yet</p>}
+        <ul>
+          {skills.map((s) => (
+            <li key={s.name} title={s.description}>
+              <b>{s.name}</b> <span className="dim">×{s.uses}</span>
+            </li>
+          ))}
+        </ul>
+      </aside>
+
+      <main className="chat">
+        <div className="log">
+          {log.map((line, i) => (
+            <div key={i} className={`line ${line.kind}`}>
+              {line.kind === "result" ? (line.ok ? "✓ " : "✗ ") : ""}
+              {line.text}
+            </div>
+          ))}
+          <div ref={bottom} />
+        </div>
+
+        <div className="composer">
+          <input
+            value={input}
+            placeholder="Ask Nexus to do something…"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && send()}
+          />
+          <button onClick={send} disabled={busy}>{busy ? "…" : "Send"}</button>
+        </div>
+      </main>
+
+      {approval && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>⚠ Approval required</h3>
+            <p><b>{approval.tool}</b> — risk <b>{approval.risk}</b></p>
+            {approval.reason && <p className="dim">{approval.reason}</p>}
+            <pre>{JSON.stringify(approval.arguments, null, 2)}</pre>
+            <div className="modal-actions">
+              <button className="deny" onClick={() => resolve(false)}>Deny</button>
+              <button className="allow" onClick={() => resolve(true)}>Approve</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
