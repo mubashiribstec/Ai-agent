@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApprovalRequest, XplogentEvent, XplogentSocket, getConfig, getSkills } from "./api";
+import { MissionControl } from "./MissionControl";
 
 interface LogLine {
   kind: "assistant" | "tool" | "result" | "note" | "user";
@@ -8,6 +9,22 @@ interface LogLine {
 }
 
 export function App() {
+  const [tab, setTab] = useState<"chat" | "mission">("chat");
+  return (
+    <div className="root">
+      <nav className="topnav">
+        <span className="brand">🧠 Xplogent</span>
+        <button className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>Chat</button>
+        <button className={tab === "mission" ? "active" : ""} onClick={() => setTab("mission")}>
+          Mission Control
+        </button>
+      </nav>
+      {tab === "chat" ? <ChatView /> : <MissionControl />}
+    </div>
+  );
+}
+
+function ChatView() {
   const [model, setModel] = useState<string>("…");
   const [skills, setSkills] = useState<{ name: string; description: string; uses: number }[]>([]);
   const [log, setLog] = useState<LogLine[]>([]);

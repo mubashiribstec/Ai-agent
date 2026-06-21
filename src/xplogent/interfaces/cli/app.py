@@ -8,6 +8,8 @@ Commands:
     xplogent skills list          list learned skills
     xplogent providers            list available providers
     xplogent serve                start the REST + WebSocket API
+    xplogent orchestrate "<goal>" run a multi-agent team on a goal
+    xplogent team --agent ...     run named agents concurrently
 """
 
 from __future__ import annotations
@@ -18,12 +20,14 @@ import typer
 import yaml
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
 
 from xplogent.core.config import load_config, xplogent_home
 from xplogent.core.events import EventBus, EventType
+from xplogent.core.orchestrator import AgentSpec
 from xplogent.memory.store import Store
 from xplogent.providers.registry import available_providers
-from xplogent.runtime import build_runtime
+from xplogent.runtime import build_orchestrator, build_runtime
 from xplogent.safety.approval import ApprovalRequest
 
 app = typer.Typer(add_completion=False, help="Xplogent — your self-improving AI agent.")
@@ -171,6 +175,100 @@ def voice(seconds: int = 6) -> None:
         finally:
             await bus.close()
             await runtime.aclose()
+
+    asyncio.run(_go())
+
+
+# ── multi-agent ───────────────────────────────────────────────────────────────
+async def _render_multi(bus: EventBus) -> None:
+    """Concise per-agent rendering for multi-agent runs (token streams omitted)."""
+    async for ev in bus.stream():
+        d = ev.data
+        who = d.get("agent_name", "?")
+        if ev.type == EventType.RUN_PROGRESS:
+            console.print(f"[bold cyan]🧭 planned {d.get('planned_tasks')} subtasks[/]")
+        elif ev.type == EventType.AGENT_SPAWN:
+            console.print(f"[green]🟢 {who}[/] ([dim]{d.get('role')}[/]) started")
+        elif ev.type == EventType.TASK_UPDATE:
+            console.print(f"[blue]📋 {d.get('title')}[/]: {d.get('status')}")
+        elif ev.type == EventType.AGENT_MESSAGE:
+            to = d.get("recipient") or "all"
+            console.print(f"[magenta]💬 {d.get('sender')} → {to}:[/] {d.get('content')}")
+        elif ev.type == EventType.TOOL_CALL:
+            console.print(f"   [cyan]{who} → {d.get('tool')}[/]")
+        elif ev.type == EventType.TOOL_RESULT:
+            mark = "[green]✓[/]" if d.get("ok") else "[red]✗[/]"
+            console.print(f"   {mark} [dim]{str(d.get('output',''))[:200]}[/]")
+        elif ev.type == EventType.MESSAGE:
+            console.print(f"[bold]{who}:[/] {d.get('content')}")
+        elif ev.type == EventType.SKILL:
+            console.print(f"[magenta]✨ {who} learned {d.get('facts',0)} fact(s)[/]")
+        elif ev.type == EventType.ERROR:
+            console.print(f"[red]error ({who}):[/] {d.get('message')}")
+
+
+def _print_taskboard(tasks: list[dict]) -> None:
+    if not tasks:
+        return
+    table = Table(title="task board", show_lines=False)
+    table.add_column("task")
+    table.add_column("role")
+    table.add_column("status")
+    for t in tasks:
+        color = {"done": "green", "failed": "red", "active": "yellow"}.get(t["status"], "white")
+        table.add_row(t["title"], t["role"], f"[{color}]{t['status']}[/]")
+    console.print(table)
+
+
+@app.command()
+def orchestrate(goal: str, max: int = 0, mode: str = "auto") -> None:
+    """Run a multi-agent team on a goal (auto-decomposed into subtasks)."""
+
+    async def _go() -> None:
+        bus = EventBus()
+        runtime = build_orchestrator(bus=bus, approve=_make_approver())
+        console.print(Panel(f"Goal: [bold]{goal}[/]\nmax concurrent: "
+                            f"{max or runtime.orchestrator.default_max}",
+                            title="🧠 Xplogent orchestrator", border_style="cyan"))
+        consumer = asyncio.create_task(_render_multi(bus))
+        result = await runtime.orchestrator.run_goal(goal, max_concurrent=max or None, mode=mode)
+        await bus.close()
+        await consumer
+        _print_taskboard(result.get("tasks", []))
+        console.print(f"[dim]peak concurrency: {result.get('peak_concurrency')} · "
+                      f"run {result.get('run_id')}[/]")
+        await runtime.aclose()
+
+    asyncio.run(_go())
+
+
+@app.command()
+def team(agent: list[str] = typer.Option(None, "--agent", "-a",
+         help="Repeatable. Format: name:role:task"), max: int = 0) -> None:
+    """Run named agents concurrently. Example:
+    xplogent team -a "researcher:researcher:find facts about X" -a "writer:coder:write a summary"
+    """
+    if not agent:
+        console.print("[red]provide at least one --agent name:role:task[/]")
+        raise typer.Exit(1)
+    specs = []
+    for spec in agent:
+        parts = spec.split(":", 2)
+        if len(parts) != 3:
+            console.print(f"[red]bad --agent '{spec}', expected name:role:task[/]")
+            raise typer.Exit(1)
+        specs.append(AgentSpec(name=parts[0], role=parts[1], task=parts[2]))
+
+    async def _go() -> None:
+        bus = EventBus()
+        runtime = build_orchestrator(bus=bus, approve=_make_approver())
+        consumer = asyncio.create_task(_render_multi(bus))
+        result = await runtime.orchestrator.run_team(specs, max_concurrent=max or None)
+        await bus.close()
+        await consumer
+        for name, answer in result.get("results", {}).items():
+            console.print(Panel(answer or "(no answer)", title=name, border_style="green"))
+        await runtime.aclose()
 
     asyncio.run(_go())
 

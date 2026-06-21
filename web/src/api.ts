@@ -45,3 +45,39 @@ export class XplogentSocket {
     this.ws.close();
   }
 }
+
+// ── Multi-agent orchestration + monitoring ────────────────────────────────────
+export interface OrchestrateOptions {
+  goal?: string;
+  specs?: { name: string; role: string; task: string }[];
+  max_concurrent?: number;
+  mode?: string;
+}
+
+export async function orchestrate(opts: OrchestrateOptions): Promise<{ run_id: string }> {
+  const r = await fetch("/orchestrate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+  return r.json();
+}
+
+export async function controlAgent(agentId: string, action: "pause" | "resume" | "cancel") {
+  await fetch(`/agents/${agentId}/${action}`, { method: "POST" });
+}
+
+// Live monitor stream for one orchestration run.
+export class MonitorSocket {
+  private ws: WebSocket;
+
+  constructor(runId: string, onEvent: (ev: XplogentEvent) => void) {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    this.ws = new WebSocket(`${proto}://${location.host}/ws/monitor?run_id=${runId}`);
+    this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
+  }
+
+  close() {
+    this.ws.close();
+  }
+}
