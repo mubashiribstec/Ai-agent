@@ -6,20 +6,30 @@ dashboard resolves ``approval_required`` events). The server is created lazily s
 importing this module never requires FastAPI unless you actually serve.
 """
 
-from __future__ import annotations
+# NOTE: no `from __future__ import annotations` here — FastAPI/Pydantic must see
+# the real request-model classes (defined inside create_app) to build bodies.
 
 import asyncio
 import os
 import uuid
 
-from xplogent.core.config import load_config
+from xplogent.core import guide, updater
+from xplogent.core.config import (
+    load_config,
+    save_env,
+    save_user_config,
+    secret_status,
+)
 from xplogent.core.events import EventBus
 from xplogent.core.orchestrator import AgentSpec
+from xplogent.memory.manager import MemoryManager
 from xplogent.memory.store import Store
+from xplogent.memory.vector import Embedder
 from xplogent.monitor.recorder import TraceRecorder
-from xplogent.providers.registry import available_providers
+from xplogent.providers.registry import available_providers, build_provider
 from xplogent.runtime import build_orchestrator, build_runtime
 from xplogent.safety.approval import ApprovalRequest
+from xplogent.tools.registry import _BUILTIN_GROUPS
 
 
 def create_app():
@@ -47,6 +57,22 @@ def create_app():
         specs: list[AgentSpecModel] | None = None
         max_concurrent: int | None = None
         mode: str = "auto"
+
+    class ConfigPatch(BaseModel):
+        updates: dict = {}
+
+    class SecretsPatch(BaseModel):
+        keys: dict[str, str] = {}
+
+    class RolePatch(BaseModel):
+        allowed_tools: object = "*"
+        policy: dict = {}
+        allowed_paths: list[str] = []
+        network: bool = True
+        max_steps: int = 25
+
+    class FactBody(BaseModel):
+        content: str
 
     # Live multi-agent runs, keyed by run_id, for monitoring + control.
     active_runs: dict[str, dict] = {}
@@ -250,12 +276,171 @@ def create_app():
         finally:
             info["bus"].unsubscribe(queue)
 
+    # ── Settings: full config, edits, secrets, tools, roles ──────────────────
+    @app.get("/config/full")
+    async def config_full() -> dict:
+        cfg = load_config()
+        return {
+            "model": cfg.model,
+            "reflection_model": cfg.reflection_model,
+            "embedding_model": cfg.embedding_model,
+            "memory": cfg.memory,
+            "safety": cfg.safety,
+            "orchestrator": cfg.orchestrator,
+            "roles": cfg.roles,
+            "mcp": cfg.mcp,
+            "tools_enabled": cfg.tools.get("enabled", []),
+            "providers": available_providers(),
+            "secrets": secret_status(),
+        }
+
+    @app.patch("/config")
+    async def patch_config(body: ConfigPatch) -> dict:
+        merged = save_user_config(body.updates)
+        return {"ok": True, "config": merged}
+
+    @app.put("/secrets")
+    async def put_secrets(body: SecretsPatch) -> dict:
+        save_env(body.keys)
+        return {"ok": True, "secrets": secret_status()}
+
+    @app.get("/tools")
+    async def tools() -> dict:
+        cfg = load_config()
+        enabled = set(cfg.tools.get("enabled", []))
+        out = []
+        for group, factory in _BUILTIN_GROUPS.items():
+            for tool in factory():
+                out.append({
+                    "name": tool.name, "group": group,
+                    "description": tool.description, "risk": tool.risk.value,
+                    "enabled": group in enabled,
+                })
+        return {"tools": out, "groups": list(_BUILTIN_GROUPS)}
+
+    @app.get("/roles")
+    async def roles() -> dict:
+        return {"roles": load_config().roles}
+
+    @app.put("/roles/{name}")
+    async def put_role(name: str, body: RolePatch) -> dict:
+        merged = save_user_config({"roles": {name: body.model_dump()}})
+        return {"ok": True, "roles": merged.get("roles", {})}
+
+    # ── Memory & skills management ───────────────────────────────────────────
+    @app.get("/memory/facts")
+    async def list_facts() -> dict:
+        store = Store(load_config().db_path)
+        out = [{"id": f.id, "content": f.content, "source": f.source} for f in store.all_facts()]
+        store.close()
+        return {"facts": out}
+
+    @app.post("/memory/facts")
+    async def add_fact(body: FactBody) -> dict:
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        embed_provider = build_provider(cfg.embedding_model)
+        mem = MemoryManager(store, Embedder(embed_provider))
+        try:
+            fact_id = await mem.remember(body.content, source="gui")
+        finally:
+            await embed_provider.aclose()
+            store.close()
+        return {"ok": True, "id": fact_id}
+
+    @app.delete("/memory/facts/{fact_id}")
+    async def delete_fact(fact_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_fact(fact_id)
+        store.close()
+        return {"ok": True}
+
+    @app.delete("/skills/{name}")
+    async def delete_skill(name: str) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_skill(name)
+        store.close()
+        return {"ok": True}
+
+    # ── One-click update ─────────────────────────────────────────────────────
+    @app.get("/update/check")
+    async def update_check() -> dict:
+        return await asyncio.to_thread(updater.check_update)
+
+    @app.post("/update")
+    async def update_apply() -> dict:
+        pulled = await asyncio.to_thread(updater.pull)
+        if not pulled["ok"]:
+            return {"ok": False, "stage": "pull", "output": pulled["output"]}
+        installed = await asyncio.to_thread(updater.reinstall)
+        # Re-exec shortly after this response flushes so new code loads.
+        asyncio.get_event_loop().call_later(0.5, lambda: updater.restart(_serve_args))
+        return {"ok": True, "restarting": True,
+                "pull": pulled["output"], "install": installed["output"]}
+
+    # ── In-app guide ─────────────────────────────────────────────────────────
+    @app.get("/guide")
+    async def guide_list() -> dict:
+        return {"pages": guide.list_pages()}
+
+    @app.get("/guide/{slug}")
+    async def guide_page(slug: str) -> dict:
+        content = guide.read_page(slug)
+        if content is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="no such page")
+        return {"slug": slug, "content": content}
+
+    # ── Serve the built dashboard (same origin) ──────────────────────────────
+    _mount_dashboard(app)
     return app
 
 
-def run_server(host: str | None = None, port: int | None = None) -> None:
+# Args used when the server re-execs itself after an update.
+_serve_args = ["up"]
+
+
+def _dashboard_dir():
+    from pathlib import Path
+
+    candidates = []
+    root = updater.repo_root()
+    if root:
+        candidates.append(root / "web" / "dist")
+    candidates.append(Path(__file__).resolve().parents[3] / "web" / "dist")
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return None
+
+
+def _mount_dashboard(app) -> None:
+    """Mount the built React dashboard at '/' if it exists (declared after the API)."""
+    dist = _dashboard_dir()
+    if not dist:
+        return
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(dist), html=True), name="dashboard")
+
+
+def run_server(host: str | None = None, port: int | None = None,
+               open_browser: bool = False) -> None:
     import uvicorn
 
     host = host or os.environ.get("XPLOGENT_API_HOST", "127.0.0.1")
     port = int(port or os.environ.get("XPLOGENT_API_PORT", 8765))
+    global _serve_args
+    _serve_args = ["up", "--port", str(port)]
+
+    if open_browser:
+        import threading
+        import webbrowser
+
+        url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}"
+        threading.Timer(1.2, lambda: webbrowser.open(url)).start()
+        if _dashboard_dir() is None:
+            print("Dashboard not built yet — serving API only. "
+                  "Build it with: cd web && npm install && npm run build")
+
     uvicorn.run(create_app(), host=host, port=port)

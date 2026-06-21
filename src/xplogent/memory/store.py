@@ -173,6 +173,9 @@ class Store:
             for r in rows
         ]
 
+    def delete_fact(self, fact_id: int) -> None:
+        self._write("DELETE FROM facts WHERE id=?", (fact_id,))
+
     # -- skills ----------------------------------------------------------------
     def upsert_skill(self, name: str, description: str, body: str,
                      embedding: list[float]) -> None:
@@ -194,6 +197,9 @@ class Store:
 
     def increment_skill_use(self, name: str) -> None:
         self._write("UPDATE skills SET uses = uses + 1 WHERE name=?", (name,))
+
+    def delete_skill(self, name: str) -> None:
+        self._write("DELETE FROM skills WHERE name=?", (name,))
 
     # -- runs / events / agent messages (monitoring) ---------------------------
     def create_run(self, run_id: str, goal: str, mode: str) -> None:

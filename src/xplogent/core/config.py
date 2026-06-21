@@ -86,8 +86,67 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
+# ─── dotenv + writable config (used by the setup wizard and the GUI) ──────────
+_SECRET_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+
+
+def env_path() -> Path:
+    return xplogent_home() / ".env"
+
+
+def load_dotenv() -> None:
+    """Load ``~/.xplogent/.env`` into ``os.environ`` without overriding real env."""
+    path = env_path()
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def save_env(updates: dict[str, str]) -> None:
+    """Merge ``KEY=VALUE`` pairs into ``~/.xplogent/.env`` (creating it)."""
+    path = env_path()
+    existing: dict[str, str] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                existing[k.strip()] = v.strip()
+    for k, v in updates.items():
+        if v:
+            existing[k] = v
+            os.environ[k] = v  # reflect immediately in-process
+    body = "\n".join(f"{k}={v}" for k, v in existing.items()) + "\n"
+    path.write_text(body, encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def secret_status() -> dict[str, bool]:
+    """Which provider keys are set (without revealing them)."""
+    return {k: bool(os.environ.get(k)) for k in _SECRET_KEYS}
+
+
+def save_user_config(updates: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge ``updates`` into ``~/.xplogent/config.yaml`` and return the merged dict."""
+    path = xplogent_home() / "config.yaml"
+    current = _load_yaml(path)
+    merged = _deep_merge(current, updates)
+    path.write_text(yaml.safe_dump(merged, sort_keys=False), encoding="utf-8")
+    return merged
+
+
 def load_config(overrides: dict[str, Any] | None = None) -> Config:
     """Build a :class:`Config` from defaults, user file, env, and explicit overrides."""
+    load_dotenv()
     data = _load_yaml(_DEFAULT_CONFIG)
 
     user_cfg = xplogent_home() / "config.yaml"

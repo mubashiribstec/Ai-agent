@@ -17,12 +17,11 @@ from __future__ import annotations
 import asyncio
 
 import typer
-import yaml
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from xplogent.core.config import load_config, xplogent_home
+from xplogent.core.config import load_config, save_env, save_user_config
 from xplogent.core.events import EventBus, EventType
 from xplogent.core.orchestrator import AgentSpec
 from xplogent.memory.store import Store
@@ -160,6 +159,66 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     from xplogent.interfaces.api.server import run_server
 
     run_server(host=host, port=port)
+
+
+@app.command()
+def up(port: int = 8765, host: str = "127.0.0.1", no_browser: bool = False) -> None:
+    """Start the backend, serve the dashboard, and open it in your browser."""
+    from xplogent.interfaces.api.server import run_server
+
+    console.print(Panel(f"Xplogent is starting on http://{host}:{port}",
+                        title="🚀 xplogent up", border_style="cyan"))
+    run_server(host=host, port=port, open_browser=not no_browser)
+
+
+@app.command()
+def setup() -> None:
+    """Interactive first-run wizard: pick a provider/model and save settings."""
+    console.print(Panel("Let's set up Xplogent.", title="⚙ setup", border_style="cyan"))
+    provider = console.input(
+        "Provider [bold]\\[ollama][/] / openai / anthropic / openrouter: "
+    ).strip() or "ollama"
+    defaults = {
+        "ollama": "llama3.1", "openai": "gpt-4o",
+        "anthropic": "claude-sonnet-4-6", "openrouter": "meta-llama/llama-3.1-70b-instruct",
+    }
+    model = console.input(f"Model [bold]\\[{defaults.get(provider, '')}][/]: ").strip() \
+        or defaults.get(provider, "")
+    save_user_config({"model": f"{provider}:{model}"})
+
+    if provider != "ollama":
+        key_env = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+                   "openrouter": "OPENROUTER_API_KEY"}.get(provider)
+        if key_env:
+            key = console.input(f"{key_env} (leave blank to skip): ").strip()
+            if key:
+                save_env({key_env: key})
+    else:
+        console.print("[dim]Ollama selected. Make sure it's running:[/] "
+                      f"ollama pull {model} && ollama pull nomic-embed-text")
+
+    console.print("[green]Saved.[/] Run [bold]xplogent up[/] to launch the dashboard.")
+
+
+@app.command()
+def update() -> None:
+    """Update Xplogent from its git repo (pull + reinstall)."""
+    from xplogent.core import updater
+
+    check = updater.check_update()
+    if not check.get("git"):
+        console.print(f"[red]{check.get('error', 'not a git checkout')}[/]")
+        raise typer.Exit(1)
+    if not check["update_available"]:
+        console.print(f"[green]Already up to date[/] ({check['current']}).")
+        return
+    console.print(f"[cyan]{check['behind_by']} new commit(s):[/]\n{check['changelog']}")
+    pulled = updater.pull()
+    console.print(pulled["output"])
+    if pulled["ok"]:
+        console.print("[cyan]reinstalling…[/]")
+        updater.reinstall()
+        console.print("[green]Updated.[/] Restart [bold]xplogent up[/] to apply.")
 
 
 @app.command()
@@ -334,12 +393,7 @@ def _print_skills(store: Store | None) -> None:
 
 
 def _set_model(spec: str) -> None:
-    cfg_path = xplogent_home() / "config.yaml"
-    data = {}
-    if cfg_path.exists():
-        data = yaml.safe_load(cfg_path.read_text()) or {}
-    data["model"] = spec
-    cfg_path.write_text(yaml.safe_dump(data))
+    save_user_config({"model": spec})
 
 
 def main() -> None:

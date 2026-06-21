@@ -1,0 +1,95 @@
+"""One-click self-update for git-clone / editable installs.
+
+Detects the repository, checks whether the tracked branch is behind its remote,
+pulls fast-forward, reinstalls (in case dependencies changed), and can re-exec
+the process so the new code takes effect.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from xplogent.core.logging import get_logger
+
+_log = get_logger("updater")
+
+
+def repo_root() -> Path | None:
+    """Return the git repo root containing this package, or None if not a checkout."""
+    here = Path(__file__).resolve()
+    for parent in [here, *here.parents]:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _git(root: Path, *args: str) -> tuple[int, str]:
+    proc = subprocess.run(
+        ["git", *args], cwd=str(root), capture_output=True, text=True
+    )
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def current_commit(root: Path | None = None) -> str:
+    root = root or repo_root()
+    if not root:
+        return ""
+    _, out = _git(root, "rev-parse", "--short", "HEAD")
+    return out
+
+
+def check_update() -> dict:
+    """Compare the local branch against its upstream. Network: runs ``git fetch``."""
+    root = repo_root()
+    if not root:
+        return {"git": False, "update_available": False,
+                "error": "not a git checkout (installed from a package)"}
+
+    _git(root, "fetch", "--quiet")
+    rc, branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    upstream = f"origin/{branch}"
+    rc, counts = _git(root, "rev-list", "--left-right", "--count", f"HEAD...{upstream}")
+    behind = 0
+    if rc == 0 and counts:
+        parts = counts.split()
+        behind = int(parts[1]) if len(parts) == 2 else 0
+    _, changelog = _git(root, "log", "--oneline", f"HEAD..{upstream}")
+    return {
+        "git": True,
+        "update_available": behind > 0,
+        "behind_by": behind,
+        "current": current_commit(root),
+        "branch": branch,
+        "changelog": changelog,
+    }
+
+
+def pull() -> dict:
+    """Fast-forward pull. Returns success + combined git output."""
+    root = repo_root()
+    if not root:
+        return {"ok": False, "output": "not a git checkout"}
+    rc, out = _git(root, "pull", "--ff-only")
+    return {"ok": rc == 0, "output": out, "root": str(root)}
+
+
+def reinstall() -> dict:
+    """Reinstall the package so changed dependencies are picked up."""
+    root = repo_root()
+    if not root:
+        return {"ok": False, "output": "not a git checkout"}
+    proc = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"],
+        cwd=str(root), capture_output=True, text=True,
+    )
+    return {"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr).strip()}
+
+
+def restart(extra_args: list[str] | None = None) -> None:
+    """Re-exec the current Python process (so new code loads). Does not return."""
+    args = [sys.executable, "-m", "xplogent", *(extra_args or ["up"])]
+    _log.info("restarting: %s", " ".join(args))
+    os.execv(sys.executable, args)
