@@ -14,9 +14,11 @@ import uuid
 
 from xplogent.core.config import load_config
 from xplogent.core.events import EventBus
+from xplogent.core.orchestrator import AgentSpec
 from xplogent.memory.store import Store
+from xplogent.monitor.recorder import TraceRecorder
 from xplogent.providers.registry import available_providers
-from xplogent.runtime import build_runtime
+from xplogent.runtime import build_orchestrator, build_runtime
 from xplogent.safety.approval import ApprovalRequest
 
 
@@ -33,6 +35,21 @@ def create_app():
 
     class RunRequest(BaseModel):
         task: str
+
+    class AgentSpecModel(BaseModel):
+        name: str
+        role: str = "operator"
+        task: str = ""
+        model: str | None = None
+
+    class OrchestrateRequest(BaseModel):
+        goal: str | None = None
+        specs: list[AgentSpecModel] | None = None
+        max_concurrent: int | None = None
+        mode: str = "auto"
+
+    # Live multi-agent runs, keyed by run_id, for monitoring + control.
+    active_runs: dict[str, dict] = {}
 
     @app.get("/health")
     async def health() -> dict:
@@ -128,6 +145,110 @@ def create_app():
             await bus.close()
             forwarder.cancel()
             await runtime.aclose()
+
+    # ── Multi-agent orchestration + deep monitoring ──────────────────────────
+    @app.post("/orchestrate")
+    async def orchestrate(req: OrchestrateRequest) -> dict:
+        """Launch a multi-agent run in the background; returns its run_id.
+
+        Connect to ``/ws/monitor?run_id=<id>`` to watch it live, or poll
+        ``/runs/{id}`` and ``/agents``.
+        """
+        mbus = EventBus()
+        runtime = build_orchestrator(bus=mbus)
+        orch = runtime.orchestrator
+        recorder = TraceRecorder(mbus, runtime.store, orch.run_id)
+        recorder.start()
+
+        async def go() -> None:
+            try:
+                if req.specs:
+                    specs = [AgentSpec(**s.model_dump()) for s in req.specs]
+                    await orch.run_team(specs, max_concurrent=req.max_concurrent)
+                else:
+                    await orch.run_goal(req.goal or "", max_concurrent=req.max_concurrent,
+                                        mode=req.mode)
+            finally:
+                await mbus.close()
+                await recorder.stop()
+                await runtime.aclose()
+                active_runs.pop(orch.run_id, None)
+
+        task = asyncio.create_task(go())
+        active_runs[orch.run_id] = {
+            "orchestrator": orch, "recorder": recorder, "bus": mbus, "task": task,
+        }
+        return {"run_id": orch.run_id, "mode": "manual" if req.specs else req.mode}
+
+    @app.get("/runs")
+    async def runs() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_runs()
+        store.close()
+        return {"runs": out, "active": list(active_runs)}
+
+    @app.get("/runs/{run_id}")
+    async def run_detail(run_id: str) -> dict:
+        store = Store(load_config().db_path)
+        info = store.get_run(run_id)
+        store.close()
+        live = active_runs.get(run_id)
+        metrics = live["recorder"].snapshot() if live else []
+        return {"run": info, "metrics": metrics}
+
+    @app.get("/runs/{run_id}/events")
+    async def run_events(run_id: str) -> dict:
+        store = Store(load_config().db_path)
+        out = store.run_events(run_id)
+        store.close()
+        return {"events": out}
+
+    @app.get("/agents")
+    async def agents() -> dict:
+        live = []
+        for rid, info in active_runs.items():
+            for a in info["orchestrator"].live_agents():
+                live.append({"run_id": rid, **a})
+        return {"agents": live}
+
+    @app.get("/messages")
+    async def messages(run_id: str | None = None) -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_agent_messages(run_id)
+        store.close()
+        return {"messages": out}
+
+    @app.post("/agents/{agent_id}/{action}")
+    async def control_agent(agent_id: str, action: str) -> dict:
+        if action not in {"pause", "resume", "cancel"}:
+            return {"ok": False, "error": "unknown action"}
+        for info in active_runs.values():
+            if info["orchestrator"].control(agent_id, action):
+                return {"ok": True}
+        return {"ok": False, "error": "agent not found"}
+
+    @app.websocket("/ws/monitor")
+    async def ws_monitor(websocket: WebSocket) -> None:
+        await websocket.accept()
+        run_id = websocket.query_params.get("run_id")
+        info = active_runs.get(run_id) if run_id else (
+            next(iter(active_runs.values()), None)
+        )
+        if not info:
+            await websocket.send_json({"type": "error", "message": "no such run"})
+            await websocket.close()
+            return
+        queue = info["bus"].subscribe()
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                await websocket.send_json({"type": event.type.value, **event.data})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            info["bus"].unsubscribe(queue)
 
     return app
 
