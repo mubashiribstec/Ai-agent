@@ -67,6 +67,89 @@ export async function controlAgent(agentId: string, action: "pause" | "resume" |
   await fetch(`/agents/${agentId}/${action}`, { method: "POST" });
 }
 
+// ── Settings / config ─────────────────────────────────────────────────────────
+export async function getFullConfig(): Promise<Record<string, any>> {
+  return (await fetch("/config/full")).json();
+}
+
+export async function patchConfig(updates: Record<string, any>) {
+  await fetch("/config", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
+}
+
+export async function putSecrets(keys: Record<string, string>) {
+  await fetch("/secrets", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keys }),
+  });
+}
+
+export async function getTools(): Promise<{ tools: any[]; groups: string[] }> {
+  return (await fetch("/tools")).json();
+}
+
+export async function getRoles(): Promise<{ roles: Record<string, any> }> {
+  return (await fetch("/roles")).json();
+}
+
+export async function putRole(name: string, role: Record<string, any>) {
+  await fetch(`/roles/${name}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(role),
+  });
+}
+
+export async function getFacts(): Promise<{ facts: { id: number; content: string }[] }> {
+  return (await fetch("/memory/facts")).json();
+}
+
+export async function addFact(content: string) {
+  await fetch("/memory/facts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function deleteFact(id: number) {
+  await fetch(`/memory/facts/${id}`, { method: "DELETE" });
+}
+
+export async function deleteSkill(name: string) {
+  await fetch(`/skills/${name}`, { method: "DELETE" });
+}
+
+// ── Update ────────────────────────────────────────────────────────────────────
+export async function checkUpdate(): Promise<Record<string, any>> {
+  return (await fetch("/update/check")).json();
+}
+
+export async function applyUpdate(): Promise<Record<string, any>> {
+  return (await fetch("/update", { method: "POST" })).json();
+}
+
+export async function health(): Promise<boolean> {
+  try {
+    return (await fetch("/health")).ok;
+  } catch {
+    return false;
+  }
+}
+
+// ── Guide ─────────────────────────────────────────────────────────────────────
+export async function getGuidePages(): Promise<{ pages: { slug: string; title: string }[] }> {
+  return (await fetch("/guide")).json();
+}
+
+export async function getGuidePage(slug: string): Promise<{ content: string }> {
+  return (await fetch(`/guide/${slug}`)).json();
+}
+
 // Live monitor stream for one orchestration run.
 export class MonitorSocket {
   private ws: WebSocket;

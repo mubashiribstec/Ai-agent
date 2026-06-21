@@ -68,27 +68,38 @@ See `src/xplogent/` for the implementation; each subsystem is a self-contained
 package behind a small interface, so providers, tools, and memory backends are
 swappable.
 
-## Quick start
+## Quick start (easy path)
 
 ```bash
-# 1. Install (Ollama-only base; add extras as needed)
-pip install -e ".[providers,memory,api]"        # or ".[all]"
+bash install.sh        # Windows: ./install.ps1   (venv + install + build dashboard)
+xplogent setup         # pick provider/model, enter a key (or use local Ollama)
+xplogent up            # starts the backend, opens the dashboard in your browser
+```
 
-# 2. Run a local model with Ollama
-ollama pull llama3.1
-ollama pull nomic-embed-text            # for memory embeddings
+That's it. The dashboard has four tabs:
+- **Chat** — talk to a single agent.
+- **Mission Control** — launch multi-agent teams and watch them live.
+- **Settings** — change *everything* from the GUI: model, API keys (masked),
+  safety policy, concurrency, tool toggles, role/permission editor, memory &
+  skills, and **one-click Update** (git pull → reinstall → auto-restart).
+- **Guide** — this documentation, in-app.
 
-# 3. Configure
-cp .env.example .env                    # set XPLOGENT_MODEL / API keys if using hosted
+### Terminal usage
 
-# 4. Chat in the terminal
-xplogent chat
-
-# Other commands
+```bash
+xplogent chat                              # single-agent REPL
+xplogent orchestrate "research X, write a summary" --max 3
 xplogent model openai:gpt-4o               # switch provider/model
-xplogent serve                             # start REST + WebSocket API
-xplogent memory search "what do you know about me"
-xplogent skills list
+xplogent update                            # pull + reinstall from git
+xplogent serve                             # API only (no browser)
+```
+
+### Manual install
+
+```bash
+pip install -e ".[all]"
+ollama pull llama3.1 && ollama pull nomic-embed-text   # local models
+cd web && npm install && npm run build                 # build the dashboard
 ```
 
 ### Web dashboard

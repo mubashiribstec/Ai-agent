@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ApprovalRequest, XplogentEvent, XplogentSocket, getConfig, getSkills } from "./api";
 import { MissionControl } from "./MissionControl";
+import { Settings } from "./Settings";
+import { Guide } from "./Guide";
 
 interface LogLine {
   kind: "assistant" | "tool" | "result" | "note" | "user";
@@ -8,18 +10,28 @@ interface LogLine {
   ok?: boolean;
 }
 
+type Tab = "chat" | "mission" | "settings" | "guide";
+
 export function App() {
-  const [tab, setTab] = useState<"chat" | "mission">("chat");
+  const [tab, setTab] = useState<Tab>("chat");
+  const tabs: [Tab, string][] = [
+    ["chat", "Chat"], ["mission", "Mission Control"],
+    ["settings", "Settings"], ["guide", "Guide"],
+  ];
   return (
     <div className="root">
       <nav className="topnav">
         <span className="brand">🧠 Xplogent</span>
-        <button className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}>Chat</button>
-        <button className={tab === "mission" ? "active" : ""} onClick={() => setTab("mission")}>
-          Mission Control
-        </button>
+        {tabs.map(([id, label]) => (
+          <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
       </nav>
-      {tab === "chat" ? <ChatView /> : <MissionControl />}
+      {tab === "chat" && <ChatView />}
+      {tab === "mission" && <MissionControl />}
+      {tab === "settings" && <Settings />}
+      {tab === "guide" && <Guide />}
     </div>
   );
 }
