@@ -1,7 +1,7 @@
 [project]
-name = "nexus-agent"
+name = "xplogent"
 version = "0.1.0"
-description = "Nexus — a self-improving, multi-provider AI agent framework with memory and full PC control."
+description = "Xplogent — a self-improving, multi-provider AI agent framework with memory and full PC control."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -58,11 +58,11 @@ dev = [
     "mypy>=1.10",
 ]
 all = [
-    "nexus-agent[providers,control,memory,api,voice,mcp,dev]",
+    "xplogent[providers,control,memory,api,voice,mcp,dev]",
 ]
 
 [project.scripts]
-nexus = "nexus.interfaces.cli.app:main"
+xplogent = "xplogent.interfaces.cli.app:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

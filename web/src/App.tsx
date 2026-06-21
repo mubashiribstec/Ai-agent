@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApprovalRequest, NexusEvent, NexusSocket, getConfig, getSkills } from "./api";
+import { ApprovalRequest, XplogentEvent, XplogentSocket, getConfig, getSkills } from "./api";
 
 interface LogLine {
   kind: "assistant" | "tool" | "result" | "note" | "user";
@@ -14,7 +14,7 @@ export function App() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
-  const sock = useRef<NexusSocket | null>(null);
+  const sock = useRef<XplogentSocket | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
 
   // Append to the streaming assistant line, or start a new one.
@@ -27,7 +27,7 @@ export function App() {
       return [...l, { kind: "assistant", text }];
     });
 
-  const handleEvent = (ev: NexusEvent) => {
+  const handleEvent = (ev: XplogentEvent) => {
     switch (ev.type) {
       case "token":
         pushAssistantToken(String(ev.text ?? ""));
@@ -59,7 +59,7 @@ export function App() {
   useEffect(() => {
     getConfig().then((c) => setModel(String(c.model ?? "unknown"))).catch(() => setModel("offline"));
     refreshSkills();
-    sock.current = new NexusSocket(handleEvent);
+    sock.current = new XplogentSocket(handleEvent);
     return () => sock.current?.close();
   }, []);
 
@@ -81,7 +81,7 @@ export function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <h1>🧠 Nexus</h1>
+        <h1>🧠 Xplogent</h1>
         <div className="model">model: <b>{model}</b></div>
         <h2>Learned skills</h2>
         {skills.length === 0 && <p className="dim">none yet</p>}
@@ -108,7 +108,7 @@ export function App() {
         <div className="composer">
           <input
             value={input}
-            placeholder="Ask Nexus to do something…"
+            placeholder="Ask Xplogent to do something…"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
           />

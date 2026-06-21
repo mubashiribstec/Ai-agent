@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from nexus.safety.approval import RiskLevel, SafetyManager
-from nexus.tools.shell import ShellTool
+from xplogent.safety.approval import RiskLevel, SafetyManager
+from xplogent.tools.shell import ShellTool
 
 
 def test_destructive_command_is_critical_and_denied():

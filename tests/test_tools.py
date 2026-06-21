@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from nexus.tools.filesystem import ReadFileTool, WriteFileTool
-from nexus.tools.registry import ToolRegistry
+from xplogent.tools.filesystem import ReadFileTool, WriteFileTool
+from xplogent.tools.registry import ToolRegistry
 
 
 def test_tool_spec_is_openai_shaped():
@@ -25,11 +25,11 @@ def test_registry_from_config_filters_groups():
 @pytest.mark.asyncio
 async def test_write_then_read(tmp_path):
     target = tmp_path / "note.txt"
-    write = await WriteFileTool().run(path=str(target), content="hello nexus")
+    write = await WriteFileTool().run(path=str(target), content="hello xplogent")
     assert write.ok
     read = await ReadFileTool().run(path=str(target))
     assert read.ok
-    assert "hello nexus" in read.output
+    assert "hello xplogent" in read.output
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,8 @@
-# ─── Nexus default configuration ──────────────────────────────────────
-# Anything here can be overridden by environment variables (NEXUS_*) or a
-# user config at ~/.nexus/config.yaml.
+# ─── Xplogent default configuration ──────────────────────────────────────
+# Anything here can be overridden by environment variables (XPLOGENT_*) or a
+# user config at ~/.xplogent/config.yaml.
 
-# Active model in "provider:model" form. Overridden by NEXUS_MODEL.
+# Active model in "provider:model" form. Overridden by XPLOGENT_MODEL.
 model: "ollama:llama3.1"
 
 # Optional separate (usually cheaper/local) model for reflection & summaries.

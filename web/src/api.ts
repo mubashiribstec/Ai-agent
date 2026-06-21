@@ -1,6 +1,6 @@
-// Thin client for the Nexus backend: REST helpers + a typed WebSocket wrapper.
+// Thin client for the Xplogent backend: REST helpers + a typed WebSocket wrapper.
 
-export interface NexusEvent {
+export interface XplogentEvent {
   type: string;
   [key: string]: unknown;
 }
@@ -23,13 +23,13 @@ export async function getSkills(): Promise<{ skills: { name: string; description
   return r.json();
 }
 
-export class NexusSocket {
+export class XplogentSocket {
   private ws: WebSocket;
 
-  constructor(onEvent: (ev: NexusEvent) => void, onOpen?: () => void) {
+  constructor(onEvent: (ev: XplogentEvent) => void, onOpen?: () => void) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     this.ws = new WebSocket(`${proto}://${location.host}/ws`);
-    this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as NexusEvent);
+    this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
     if (onOpen) this.ws.onopen = onOpen;
   }
 

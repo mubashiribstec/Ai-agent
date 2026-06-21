@@ -1,0 +1,53 @@
+"""Tool registry — one unified catalog of built-in, plugin, and MCP tools."""
+
+from __future__ import annotations
+
+from xplogent.providers.base import ToolSpec
+from xplogent.tools.base import Tool
+from xplogent.tools.browser import browser_tools
+from xplogent.tools.filesystem import filesystem_tools
+from xplogent.tools.gui import gui_tools
+from xplogent.tools.python_exec import PythonExecTool
+from xplogent.tools.shell import ShellTool
+from xplogent.tools.web import web_tools
+
+# Maps a config group name to a factory producing its tools.
+_BUILTIN_GROUPS = {
+    "shell": lambda: [ShellTool()],
+    "filesystem": filesystem_tools,
+    "python_exec": lambda: [PythonExecTool()],
+    "web": web_tools,
+    "gui": gui_tools,
+    "browser": browser_tools,
+}
+
+
+class ToolRegistry:
+    def __init__(self) -> None:
+        self._tools: dict[str, Tool] = {}
+
+    def register(self, tool: Tool) -> None:
+        self._tools[tool.name] = tool
+
+    def register_many(self, tools: list[Tool]) -> None:
+        for tool in tools:
+            self.register(tool)
+
+    def get(self, name: str) -> Tool | None:
+        return self._tools.get(name)
+
+    def all(self) -> list[Tool]:
+        return list(self._tools.values())
+
+    def specs(self) -> list[ToolSpec]:
+        return [t.spec() for t in self._tools.values()]
+
+    @classmethod
+    def from_config(cls, enabled: list[str] | None = None) -> ToolRegistry:
+        registry = cls()
+        groups = enabled if enabled is not None else list(_BUILTIN_GROUPS)
+        for group in groups:
+            factory = _BUILTIN_GROUPS.get(group)
+            if factory:
+                registry.register_many(factory())
+        return registry

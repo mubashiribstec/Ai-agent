@@ -19,8 +19,8 @@ data/
 *.db
 *.sqlite
 *.sqlite3
-nexus_data/
-~/.nexus/
+xplogent_data/
+~/.xplogent/
 
 # Node / web
 web/node_modules/

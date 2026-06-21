@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from nexus.core.agent import Agent
-from nexus.core.config import load_config
-from nexus.providers.base import Message, Role, ToolCall
-from nexus.safety.approval import SafetyManager
-from nexus.tools.registry import ToolRegistry
 from tests.conftest import ScriptedProvider
+from xplogent.core.agent import Agent
+from xplogent.core.config import load_config
+from xplogent.providers.base import Message, Role, ToolCall
+from xplogent.safety.approval import SafetyManager
+from xplogent.tools.registry import ToolRegistry
 
 
 @pytest.mark.asyncio

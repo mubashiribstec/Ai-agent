@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from nexus.providers.base import (
+from xplogent.providers.base import (
     Message,
     Provider,
     Role,

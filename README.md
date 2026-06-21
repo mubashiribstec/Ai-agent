@@ -1,6 +1,6 @@
-# 🧠 Nexus — a self-improving AI agent framework
+# 🧠 Xplogent — a self-improving AI agent framework
 
-Nexus is a personal AI agent you fully own and run yourself. It works with **any
+Xplogent is a personal AI agent you fully own and run yourself. It works with **any
 LLM provider** (including **local Ollama**, fully offline), keeps **its own
 persistent memory**, **improves itself** by reflecting on tasks and writing
 reusable skills, and can **control your whole PC** (shell, files, mouse/keyboard,
@@ -10,9 +10,9 @@ It's inspired by [Hermes](https://github.com/NousResearch/hermes-agent) and the
 OpenClaw ecosystem, but built as a leaner, cleanly-architected core that's easy
 to extend with plugins and MCP servers.
 
-## Why Nexus
+## Why Xplogent
 
-| Capability | Nexus |
+| Capability | Xplogent |
 |---|---|
 | **Providers** | Ollama (local/offline), OpenAI, Anthropic, OpenRouter (200+ models) — switch with one config value |
 | **Memory** | SQLite + local embeddings; short-term, long-term, and episodic recall |
@@ -37,7 +37,7 @@ to extend with plugins and MCP servers.
         └──────────────────────────────────────────────────────────┘
 ```
 
-See `src/nexus/` for the implementation; each subsystem is a self-contained
+See `src/xplogent/` for the implementation; each subsystem is a self-contained
 package behind a small interface, so providers, tools, and memory backends are
 swappable.
 
@@ -52,22 +52,22 @@ ollama pull llama3.1
 ollama pull nomic-embed-text            # for memory embeddings
 
 # 3. Configure
-cp .env.example .env                    # set NEXUS_MODEL / API keys if using hosted
+cp .env.example .env                    # set XPLOGENT_MODEL / API keys if using hosted
 
 # 4. Chat in the terminal
-nexus chat
+xplogent chat
 
 # Other commands
-nexus model openai:gpt-4o               # switch provider/model
-nexus serve                             # start REST + WebSocket API
-nexus memory search "what do you know about me"
-nexus skills list
+xplogent model openai:gpt-4o               # switch provider/model
+xplogent serve                             # start REST + WebSocket API
+xplogent memory search "what do you know about me"
+xplogent skills list
 ```
 
 ### Web dashboard
 
 ```bash
-nexus serve            # backend API on :8765
+xplogent serve            # backend API on :8765
 cd web && npm install && npm run dev    # dashboard on :5173
 ```
 
@@ -92,7 +92,7 @@ a deny-list and are blocked outright. In the CLI you approve inline; over the AP
 the agent emits an `approval_required` event your UI resolves.
 
 > ⚠️ GUI automation (`pyautogui`) needs a real display. On a headless/remote
-> machine, drive Nexus through the API/dashboard instead.
+> machine, drive Xplogent through the API/dashboard instead.
 
 ## Status
 

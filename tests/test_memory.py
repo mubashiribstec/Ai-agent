@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from nexus.memory.manager import MemoryManager
-from nexus.memory.store import Store
-from nexus.memory.vector import Embedder, cosine
 from tests.conftest import ScriptedProvider
+from xplogent.memory.manager import MemoryManager
+from xplogent.memory.store import Store
+from xplogent.memory.vector import Embedder, cosine
 
 
 def test_cosine_bounds():
