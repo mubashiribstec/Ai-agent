@@ -50,6 +50,7 @@ class Config:
     skills: dict[str, Any] = field(default_factory=dict)
     orchestrator: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
+    mcp: dict[str, Any] = field(default_factory=dict)
     home: Path = field(default_factory=xplogent_home)
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -114,5 +115,6 @@ def load_config(overrides: dict[str, Any] | None = None) -> Config:
         skills=data.get("skills", {}),
         orchestrator=data.get("orchestrator", {}),
         roles=data.get("roles", {}),
+        mcp=data.get("mcp", {}),
         raw=data,
     )

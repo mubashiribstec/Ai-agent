@@ -20,6 +20,7 @@ from xplogent.memory.vector import Embedder
 from xplogent.plugins.loader import load_plugins
 from xplogent.providers.registry import build_provider
 from xplogent.safety.approval import SafetyManager
+from xplogent.safety.profile import PermissionProfile
 from xplogent.skills.manager import SkillManager
 from xplogent.skills.reflection import Reflector
 from xplogent.tools.registry import ToolRegistry
@@ -48,6 +49,7 @@ def build_runtime(
     bus: EventBus | None = None,
     approve: ApproveCallback | None = None,
     with_memory: bool = True,
+    role: str | None = None,
 ) -> Runtime:
     config = config or load_config()
     bus = bus or EventBus()
@@ -56,6 +58,12 @@ def build_runtime(
     tools = ToolRegistry.from_config(config.tools.get("enabled"))
     load_plugins(tools)  # drop-in plugins extend the same registry
     safety = SafetyManager.from_config(config.safety)
+
+    # Optionally scope this runtime to a role profile (used by the MCP server).
+    if role:
+        profile = PermissionProfile.from_role(role, config.roles)
+        tools = tools.filtered(profile.tool_filter())
+        safety = safety.with_profile(profile, config.safety)
 
     memory: MemoryManager | None = None
     reflector: Reflector | None = None

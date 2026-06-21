@@ -63,6 +63,7 @@ all = [
 
 [project.scripts]
 xplogent = "xplogent.interfaces.cli.app:main"
+xplogent-mcp = "xplogent.interfaces.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

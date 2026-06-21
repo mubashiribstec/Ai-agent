@@ -163,6 +163,22 @@ def serve(host: str | None = None, port: int | None = None) -> None:
 
 
 @app.command()
+def mcp(
+    transport: str = typer.Option("stdio", help="stdio | streamable-http | sse"),
+    host: str = "127.0.0.1",
+    port: int = 8766,
+    role: str | None = typer.Option(None, help="Role profile for MCP-driven runs."),
+    auto_approve: bool = typer.Option(False, "--auto-approve",
+                                      help="Allow confirm-tier actions without a human."),
+) -> None:
+    """Run Xplogent as an MCP server (needs the 'mcp' extra)."""
+    from xplogent.interfaces.mcp_server import run_server
+
+    run_server(transport=transport, host=host, port=port,
+               role=role, auto_approve=auto_approve if auto_approve else None)
+
+
+@app.command()
 def voice(seconds: int = 6) -> None:
     """Talk to Xplogent (needs the 'voice' extra)."""
     from xplogent.interfaces.voice.audio import voice_loop

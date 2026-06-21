@@ -98,6 +98,40 @@ xplogent serve            # backend API on :8765
 cd web && npm install && npm run dev    # dashboard on :5173
 ```
 
+### Use Xplogent from Claude Desktop / Claude Code (MCP)
+
+Xplogent can run **as an MCP server**, so any MCP client can delegate tasks to
+it — run a single agent, launch a multi-agent team, query memory, or drive the
+PC tools (all through Xplogent's safety/rights layer).
+
+```bash
+pip install -e ".[mcp]"
+xplogent mcp                                   # stdio (default)
+xplogent mcp --transport streamable-http --port 8766   # remote/HTTP
+```
+
+Register it with **Claude Code**:
+
+```bash
+claude mcp add xplogent -- xplogent mcp
+```
+
+…or in **Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "xplogent": { "command": "xplogent-mcp" }
+  }
+}
+```
+
+Exposed MCP tools: `xplogent_run_agent`, `xplogent_orchestrate`,
+`xplogent_search_memory`, `xplogent_list_skills`, `xplogent_remember`, plus each
+PC-control tool (toggle with `mcp.server.expose_raw_tools`). MCP-driven runs use
+the `mcp.server.agent_role` profile; confirm-tier actions are blocked unless
+`mcp.server.auto_approve` is set — use a `restricted` role for untrusted clients.
+
 ## Installation extras
 
 | Extra | Adds |
@@ -107,7 +141,7 @@ cd web && npm install && npm run dev    # dashboard on :5173
 | `memory` | `sqlite-vec` + local embeddings |
 | `api` | FastAPI + Uvicorn (REST/WebSocket) |
 | `voice` | Whisper STT + TTS |
-| `mcp` | MCP client for external tool servers |
+| `mcp` | MCP client **and** server (run `xplogent mcp`) |
 | `all` | everything above + dev tools |
 
 ## Safety

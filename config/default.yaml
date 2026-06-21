@@ -108,3 +108,14 @@ roles:
     allowed_paths: []
     network: false
     max_steps: 10
+
+# ─── Expose Xplogent as an MCP server ─────────────────────────────────
+# Lets MCP clients (Claude Desktop/Code, other agents) call into Xplogent.
+mcp:
+  server:
+    agent_role: operator        # role profile applied to MCP-driven runs
+    auto_approve: false         # allow confirm-tier actions without a human
+    expose_raw_tools: true      # expose individual PC-control tools as MCP tools
+    transport: stdio            # stdio | sse | streamable-http
+    host: 127.0.0.1
+    port: 8766
