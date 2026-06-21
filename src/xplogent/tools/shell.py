@@ -8,7 +8,12 @@ from typing import Any
 from xplogent.safety.approval import RiskLevel
 from xplogent.tools.base import Tool, ToolResult
 
-_DESTRUCTIVE = ("rm ", "rmdir", "mv ", "dd ", "mkfs", "shutdown", "reboot", "kill", ">", "sudo")
+_DESTRUCTIVE = (
+    # POSIX
+    "rm ", "rmdir", "mv ", "dd ", "mkfs", "shutdown", "reboot", "kill", ">", "sudo",
+    # Windows
+    "del ", "erase ", "format ", "rd ", "rmdir ", "diskpart", "rundll32", "reg delete",
+)
 
 
 class ShellTool(Tool):
@@ -34,7 +39,12 @@ class ShellTool(Tool):
             return RiskLevel.HIGH
         # Read-only-ish commands are lower risk.
         first = cmd.strip().split(" ", 1)[0] if cmd.strip() else ""
-        if first in {"ls", "cat", "pwd", "echo", "whoami", "date", "df", "ps", "grep", "find", "which"}:
+        if first in {
+            # POSIX read-only-ish
+            "ls", "cat", "pwd", "echo", "whoami", "date", "df", "ps", "grep", "find", "which",
+            # Windows read-only-ish
+            "dir", "type", "where", "cd", "hostname", "ver", "tasklist",
+        }:
             return RiskLevel.LOW
         return RiskLevel.MEDIUM
 

@@ -30,10 +30,17 @@ safety:
     critical: deny
   # Commands matching these (regex, case-insensitive) are always critical.
   deny_patterns:
+    # POSIX
     - "rm\\s+-rf\\s+/"
     - "mkfs"
     - ":\\(\\)\\s*\\{.*\\};:"   # fork bomb
     - "dd\\s+if=.*of=/dev/"
+    # Windows
+    - "format\\s+[a-z]:"
+    - "del\\s+/[sf]"
+    - "rd\\s+/s"
+    - "rmdir\\s+/s"
+    - "diskpart"
   # Filesystem writes restricted to these roots (empty = no path restriction).
   allowed_write_roots: []
 
@@ -49,3 +56,55 @@ tools:
 skills:
   enabled: true
   reflect_after_tasks: true   # run self-improvement reflection after each task
+  reflect_min_steps: 1        # skip reflection for runs with fewer tool steps
+
+# ─── Multi-agent orchestration ────────────────────────────────────────
+orchestrator:
+  max_concurrent_agents: 3    # how many agents may run at the same time
+  default_mode: auto          # "auto" (decompose a goal) or "manual" (named agents)
+  enable_collab_tools: true   # give agents broadcast/send_message/read_inbox tools
+
+# ─── Per-agent rights (role profiles) ─────────────────────────────────
+# Each role limits which tools an agent may use, its risk policy, the
+# filesystem paths it may touch, and network access. Assign roles to agents
+# when orchestrating. "*" means "all".
+roles:
+  orchestrator:
+    allowed_tools: "*"
+    policy: { low: auto, medium: confirm, high: confirm, critical: deny }
+    allowed_paths: []
+    network: true
+    max_steps: 30
+  researcher:
+    allowed_tools: [web_search, web_fetch, read_file, list_dir,
+                    broadcast, send_message, read_inbox, list_agents]
+    policy: { low: auto, medium: confirm, high: deny, critical: deny }
+    allowed_paths: []
+    network: true
+    max_steps: 20
+  coder:
+    allowed_tools: [read_file, write_file, edit_file, list_dir, shell, python_exec,
+                    broadcast, send_message, read_inbox, list_agents]
+    policy: { low: auto, medium: auto, high: confirm, critical: deny }
+    allowed_paths: []         # set to e.g. ["./workspace"] to sandbox writes
+    network: false
+    max_steps: 25
+  reviewer:
+    allowed_tools: [read_file, list_dir, web_search, web_fetch,
+                    broadcast, send_message, read_inbox, list_agents]
+    policy: { low: auto, medium: confirm, high: deny, critical: deny }
+    allowed_paths: []
+    network: true
+    max_steps: 15
+  operator:
+    allowed_tools: "*"
+    policy: { low: auto, medium: confirm, high: confirm, critical: deny }
+    allowed_paths: []
+    network: true
+    max_steps: 30
+  restricted:
+    allowed_tools: [read_file, list_dir]
+    policy: { low: confirm, medium: deny, high: deny, critical: deny }
+    allowed_paths: []
+    network: false
+    max_steps: 10

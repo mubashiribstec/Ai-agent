@@ -7,19 +7,13 @@ message instead of crashing.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
 from xplogent.core.config import xplogent_home
+from xplogent.core.platform import has_display as _has_display
 from xplogent.safety.approval import RiskLevel
 from xplogent.tools.base import Tool, ToolResult, optional_import_error
-
-
-def _has_display() -> bool:
-    if os.name == "nt" or os.sys.platform == "darwin":  # type: ignore[attr-defined]
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 class ScreenshotTool(Tool):

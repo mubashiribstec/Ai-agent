@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import traceback
 from pathlib import Path
 
 from xplogent.core.config import xplogent_home
+from xplogent.core.logging import get_logger
 from xplogent.tools.registry import ToolRegistry
+
+_log = get_logger("plugins")
 
 
 def plugins_dir() -> Path:
@@ -40,5 +42,5 @@ def load_plugins(registry: ToolRegistry) -> list[str]:
                 module.register(registry)
                 loaded.append(path.stem)
         except Exception:  # noqa: BLE001 - a broken plugin must not crash Xplogent
-            traceback.print_exc()
+            _log.exception("Failed to load plugin %s", path.name)
     return loaded

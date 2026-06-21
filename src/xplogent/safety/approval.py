@@ -12,7 +12,10 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
+
+from xplogent.safety.profile import PATH_WRITE_TOOLS, PermissionProfile
 
 
 class RiskLevel(StrEnum):
@@ -69,6 +72,9 @@ class SafetyManager:
     )
     deny_patterns: list[str] = field(default_factory=lambda: list(_DEFAULT_DENY))
     allowed_write_roots: list[str] = field(default_factory=list)
+    # Optional per-agent profile. When set, it overrides policy and adds
+    # tool allow-listing + filesystem path scoping.
+    profile: PermissionProfile | None = None
 
     @classmethod
     def from_config(cls, safety_cfg: dict[str, Any]) -> SafetyManager:
@@ -78,9 +84,38 @@ class SafetyManager:
             allowed_write_roots=safety_cfg.get("allowed_write_roots") or [],
         )
 
+    def with_profile(self, profile: PermissionProfile, safety_cfg: dict[str, Any]) -> SafetyManager:
+        """Return a SafetyManager scoped to a per-agent permission profile."""
+        return SafetyManager(
+            policy=profile.policy or self.policy,
+            deny_patterns=safety_cfg.get("deny_patterns") or list(self.deny_patterns),
+            allowed_write_roots=profile.allowed_paths or self.allowed_write_roots,
+            profile=profile,
+        )
+
     def _matches_deny(self, arguments: dict[str, Any]) -> bool:
         blob = " ".join(str(v) for v in arguments.values())
         return any(re.search(p, blob, re.IGNORECASE) for p in self.deny_patterns)
+
+    def _path_violation(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+        """Return a reason string if a write escapes allowed_write_roots."""
+        roots = self.allowed_write_roots
+        if not roots or tool_name not in PATH_WRITE_TOOLS:
+            return None
+        target = arguments.get("path")
+        if not target:
+            return None
+        try:
+            resolved = Path(str(target)).expanduser().resolve()
+        except (OSError, RuntimeError):
+            return f"invalid path: {target}"
+        for root in roots:
+            try:
+                if resolved.is_relative_to(Path(root).expanduser().resolve()):
+                    return None
+            except (OSError, RuntimeError):
+                continue
+        return f"path '{resolved}' is outside this agent's allowed paths"
 
     def classify(self, tool: Any, arguments: dict[str, Any]) -> tuple[RiskLevel, str]:
         """Determine the effective risk of a tool call."""
@@ -96,6 +131,19 @@ class SafetyManager:
         arguments: dict[str, Any],
         approve: ApprovalCallback | None = None,
     ) -> ApprovalDecision:
+        tool_name = getattr(tool, "name", str(tool))
+
+        # 1. Tool allow-listing per the agent's profile.
+        if self.profile is not None and not self.profile.allows_tool(tool_name):
+            return ApprovalDecision(
+                False, RiskLevel.HIGH,
+                f"tool '{tool_name}' is not permitted for role '{self.profile.name}'",
+            )
+
+        # 2. Filesystem path scoping.
+        if violation := self._path_violation(tool_name, arguments):
+            return ApprovalDecision(False, RiskLevel.HIGH, violation)
+
         risk, reason = self.classify(tool, arguments)
         action = self.policy.get(risk.value, "confirm")
 

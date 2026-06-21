@@ -48,6 +48,8 @@ class Config:
     safety: dict[str, Any] = field(default_factory=dict)
     tools: dict[str, Any] = field(default_factory=dict)
     skills: dict[str, Any] = field(default_factory=dict)
+    orchestrator: dict[str, Any] = field(default_factory=dict)
+    roles: dict[str, Any] = field(default_factory=dict)
     home: Path = field(default_factory=xplogent_home)
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -110,5 +112,7 @@ def load_config(overrides: dict[str, Any] | None = None) -> Config:
         safety=data.get("safety", {}),
         tools=data.get("tools", {}),
         skills=data.get("skills", {}),
+        orchestrator=data.get("orchestrator", {}),
+        roles=data.get("roles", {}),
         raw=data,
     )

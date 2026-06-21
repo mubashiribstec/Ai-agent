@@ -42,6 +42,17 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return [t.spec() for t in self._tools.values()]
 
+    def filtered(self, allowed: set[str] | None) -> ToolRegistry:
+        """Return a new registry containing only the allowed tools.
+
+        ``None`` means 'all tools' and returns a registry sharing the same tools.
+        """
+        clone = ToolRegistry()
+        for tool in self._tools.values():
+            if allowed is None or tool.name in allowed:
+                clone.register(tool)
+        return clone
+
     @classmethod
     def from_config(cls, enabled: list[str] | None = None) -> ToolRegistry:
         registry = cls()
