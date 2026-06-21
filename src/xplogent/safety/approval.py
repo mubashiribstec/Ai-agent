@@ -53,10 +53,17 @@ ApprovalCallback = Callable[[ApprovalRequest], Awaitable[bool]]
 
 
 _DEFAULT_DENY = [
+    # POSIX
     r"rm\s+-rf\s+/",
     r"mkfs",
     r":\(\)\s*\{.*\};:",
     r"dd\s+if=.*of=/dev/",
+    # Windows
+    r"format\s+[a-z]:",
+    r"del\s+/[sf]",
+    r"rd\s+/s",
+    r"rmdir\s+/s",
+    r"diskpart",
 ]
 
 

@@ -8,16 +8,23 @@ on:
 jobs:
   python:
     name: Python — lint & test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: pip install -e ".[dev,api]"
       - name: Lint
         run: ruff check src tests
+      - name: Type check (non-blocking)
+        run: mypy src/xplogent --ignore-missing-imports || true
       - name: Test
         run: pytest -q
 

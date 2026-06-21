@@ -8,7 +8,7 @@ screen, browser) — all behind a configurable **safety/approval layer**.
 
 It's inspired by [Hermes](https://github.com/NousResearch/hermes-agent) and the
 OpenClaw ecosystem, but built as a leaner, cleanly-architected core that's easy
-to extend with plugins and MCP servers.
+to extend with plugins and MCP servers. It runs on **Windows and Linux** (and macOS).
 
 ## Why Xplogent
 
@@ -17,24 +17,51 @@ to extend with plugins and MCP servers.
 | **Providers** | Ollama (local/offline), OpenAI, Anthropic, OpenRouter (200+ models) — switch with one config value |
 | **Memory** | SQLite + local embeddings; short-term, long-term, and episodic recall |
 | **Self-improvement** | Reflects after tasks, consolidates memory, auto-creates & reuses skills |
+| **Multi-agent** | Run many agents at once (you set the limit); orchestrator auto-decomposes a goal, or define named agents |
+| **Collaboration** | Agents broadcast status and send direct messages to each other |
+| **Deep monitoring** | Live per-agent telemetry, kanban task board, agent chatter, persisted run traces |
+| **Agent rights** | Per-agent role profiles: allowed tools, risk policy, filesystem path scope, network |
 | **PC control** | Shell, filesystem, Python, web, GUI (mouse/keyboard/screenshots), browser |
 | **Safety** | Every risky action is risk-classified and gated (`auto` / `confirm` / `deny`) |
-| **Interfaces** | CLI/TUI, REST + WebSocket API, Web dashboard, Voice |
+| **Interfaces** | CLI/TUI, REST + WebSocket API, Web dashboard (Chat + Mission Control), Voice |
 | **Extensible** | Drop-in Python plugins + MCP servers via one unified tool registry |
+
+## Multi-agent teams
+
+```bash
+# Auto: the orchestrator plans subtasks and runs a team (max 3 at once)
+xplogent orchestrate "research the top 3 vector DBs and write a comparison file" --max 3
+
+# Manual: define named agents (name:role:task), run them concurrently
+xplogent team -a "scout:researcher:find facts about X" \
+              -a "writer:coder:write a summary to notes.md"
+```
+
+Agents share a **message bus** (broadcast + direct messages) and a **task board**.
+Each agent runs under a **role profile** (see `roles:` in `config/default.yaml`)
+that limits its tools, risk policy, filesystem paths, and network access — so you
+control exactly what every agent may do. Watch it all live in the **Mission
+Control** dashboard (agent cards with pause/cancel, kanban, agent chatter) or in
+the terminal.
 
 ## Architecture
 
 ```
-                ┌───────────── Interfaces ─────────────┐
-   CLI/TUI ──┐  Voice (STT/TTS) ──┐   Web Dashboard (TS) ─┐
-             │                    │                       │
-             └──────── REST + WebSocket API (FastAPI) ────┘
+              CLI/TUI · Voice · Web (Chat + Mission Control)
                                   │
-                          Event bus (async)
+                  REST + WebSocket API (FastAPI)  ── monitor ──┐
+                                  │                            │
+                          Event bus (async)            TraceRecorder → SQLite
                                   │
-        ┌─────────────────── Agent loop (core) ───────────────────┐
-        │  providers │ memory │ tools │ safety │ skills │ plugins  │
-        └──────────────────────────────────────────────────────────┘
+                       ┌──────────┴──────────┐  semaphore(max_concurrent)
+                       │ Orchestrator + Plan │  auto-decompose OR named agents
+                       └──────────┬──────────┘
+            ┌─────────────────────┼─────────────────────┐
+        Agent(researcher)    Agent(coder)        Agent(reviewer)
+            │ permission profile · own memory · collab tools │
+            └──── MessageBus (broadcast + direct) · TaskBoard ┘
+                                  │
+        per agent: providers │ memory │ tools │ safety │ skills │ plugins
 ```
 
 See `src/xplogent/` for the implementation; each subsystem is a self-contained
