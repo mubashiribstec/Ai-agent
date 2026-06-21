@@ -31,6 +31,12 @@ class EventType(StrEnum):
     # memory / skills
     MEMORY = "memory"
     SKILL = "skill"
+    # multi-agent
+    AGENT_SPAWN = "agent_spawn"      # a worker started
+    AGENT_STATUS = "agent_status"    # status change (running/paused/done/cancelled)
+    AGENT_MESSAGE = "agent_message"  # inter-agent broadcast/direct message
+    RUN_PROGRESS = "run_progress"    # orchestrator-level progress
+    TASK_UPDATE = "task_update"      # task board change
     # misc
     ERROR = "error"
 
