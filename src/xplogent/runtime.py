@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from xplogent.core.agent import Agent, ApproveCallback
 from xplogent.core.config import Config, load_config
 from xplogent.core.events import EventBus
+from xplogent.core.orchestrator import Orchestrator
 from xplogent.memory.manager import MemoryManager
 from xplogent.memory.store import Store
 from xplogent.memory.vector import Embedder
@@ -77,3 +78,51 @@ def build_runtime(
         memory=memory, reflector=reflector, skills=skills, bus=bus, approve=approve,
     )
     return Runtime(config=config, agent=agent, store=store, bus=bus)
+
+
+@dataclass
+class OrchestratorRuntime:
+    config: Config
+    orchestrator: Orchestrator
+    store: Store
+    bus: EventBus
+
+    async def aclose(self) -> None:
+        await self.orchestrator.aclose()
+        await self.orchestrator.embedder.provider.aclose()
+        if self.orchestrator.reflector:
+            await self.orchestrator.reflector.provider.aclose()
+        self.store.close()
+
+
+def build_orchestrator(
+    config: Config | None = None,
+    *,
+    bus: EventBus | None = None,
+    approve: ApproveCallback | None = None,
+) -> OrchestratorRuntime:
+    """Assemble a multi-agent orchestrator sharing one store, memory, and bus."""
+    config = config or load_config()
+    bus = bus or EventBus()
+
+    store = Store(config.db_path)
+    embedder = Embedder(build_provider(config.embedding_model))
+    base_tools = ToolRegistry.from_config(config.tools.get("enabled"))
+    load_plugins(base_tools)
+    base_safety = SafetyManager.from_config(config.safety)
+
+    reflector: Reflector | None = None
+    skills: SkillManager | None = None
+    if config.skills.get("enabled", True):
+        reflector = Reflector(build_provider(config.reflection_model))
+        skills = SkillManager(
+            MemoryManager(store, embedder, session_id=store.create_session("skills")),
+            config.skills_dir,
+        )
+
+    orchestrator = Orchestrator(
+        config, bus=bus, store=store, embedder=embedder,
+        base_tools=base_tools, base_safety=base_safety,
+        reflector=reflector, skills=skills, approve=approve,
+    )
+    return OrchestratorRuntime(config=config, orchestrator=orchestrator, store=store, bus=bus)
