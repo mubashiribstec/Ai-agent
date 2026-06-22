@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from xplogent.providers.base import (
+    EFFORT_BUDGET,
     Message,
     Provider,
     Role,
@@ -22,6 +23,7 @@ from xplogent.providers.base import (
     StreamKind,
     ToolCall,
     ToolSpec,
+    extract_gen_params,
 )
 
 ANTHROPIC_VERSION = "2023-06-01"
@@ -94,13 +96,21 @@ class AnthropicProvider(Provider):
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         system, conv = self._convert(messages)
+        gen = extract_gen_params(kwargs)
+        max_tokens = int(gen["max_tokens"] or self.max_tokens)
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": conv,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
         }
+        # Extended thinking: enabled by the thinking toggle or medium/high effort.
+        if gen["thinking"] or gen["effort"] in ("medium", "high"):
+            budget = EFFORT_BUDGET.get(gen["effort"] or "medium", 4096)
+            payload["max_tokens"] = max(max_tokens, budget + 1024)
+            payload["temperature"] = 1  # required when thinking is enabled
+            payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
         if system:
             payload["system"] = system
         if tools:

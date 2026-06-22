@@ -22,6 +22,7 @@ from xplogent.providers.base import (
     StreamKind,
     ToolCall,
     ToolSpec,
+    extract_gen_params,
 )
 
 
@@ -41,12 +42,19 @@ class OllamaProvider(Provider):
         temperature: float = 0.7,
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
+        gen = extract_gen_params(kwargs)
+        options: dict[str, Any] = {"temperature": temperature}
+        if gen["max_tokens"]:
+            options["num_predict"] = gen["max_tokens"]
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
             "stream": True,
-            "options": {"temperature": temperature},
+            "options": options,
         }
+        # Ollama "think" flag for thinking-capable models.
+        if gen["thinking"] or gen["effort"] in ("medium", "high"):
+            payload["think"] = True
         if tools:
             payload["tools"] = [t.to_openai() for t in tools]
 

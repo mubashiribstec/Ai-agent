@@ -22,6 +22,8 @@ from xplogent.providers.base import (
     StreamKind,
     ToolCall,
     ToolSpec,
+    extract_gen_params,
+    is_reasoning_effort,
 )
 
 
@@ -29,6 +31,10 @@ class OpenAIProvider(Provider):
     name = "openai"
     default_base_url = "https://api.openai.com/v1"
     api_key_env = "OPENAI_API_KEY"
+
+    def _is_reasoning_model(self) -> bool:
+        m = self.model.lower()
+        return m.startswith(("o1", "o3", "o4")) or "gpt-5" in m or "reason" in m
 
     def __init__(
         self,
@@ -59,12 +65,19 @@ class OpenAIProvider(Provider):
         temperature: float = 0.7,
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
+        gen = extract_gen_params(kwargs)
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
             "stream": True,
             "temperature": temperature,
         }
+        if gen["max_tokens"]:
+            payload["max_tokens"] = gen["max_tokens"]
+        # Reasoning effort only applies to reasoning models (o-series / gpt-5);
+        # sending it to others can be rejected, so guard by model name.
+        if is_reasoning_effort(gen["effort"]) and self._is_reasoning_model():
+            payload["reasoning_effort"] = gen["effort"]
         if tools:
             payload["tools"] = [t.to_openai() for t in tools]
 

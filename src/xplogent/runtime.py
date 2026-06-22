@@ -50,11 +50,14 @@ def build_runtime(
     approve: ApproveCallback | None = None,
     with_memory: bool = True,
     role: str | None = None,
+    model: str | None = None,
+    gen_params: dict | None = None,
+    session_id: int | None = None,
 ) -> Runtime:
     config = config or load_config()
     bus = bus or EventBus()
 
-    provider = build_provider(config.model)
+    provider = build_provider(model or config.model)
     tools = ToolRegistry.from_config(config.tools.get("enabled"))
     load_plugins(tools)  # drop-in plugins extend the same registry
     safety = SafetyManager.from_config(config.safety)
@@ -72,10 +75,11 @@ def build_runtime(
 
     if with_memory and config.memory.get("enabled", True):
         store = Store(config.db_path)
-        session_id = store.create_session(title="session")
+        # Reuse an existing session (chat continuity) or start a new one.
+        sid = session_id if session_id is not None else store.create_session(title="chat")
         embed_provider = build_provider(config.embedding_model)
         embedder = Embedder(embed_provider)
-        memory = MemoryManager(store, embedder, session_id=session_id)
+        memory = MemoryManager(store, embedder, session_id=sid)
 
         if config.skills.get("enabled", True):
             reflector = Reflector(build_provider(config.reflection_model))
@@ -84,7 +88,10 @@ def build_runtime(
     agent = Agent(
         config, provider, tools, safety,
         memory=memory, reflector=reflector, skills=skills, bus=bus, approve=approve,
+        gen_params=gen_params,
     )
+    if session_id is not None:
+        agent.load_history()
     return Runtime(config=config, agent=agent, store=store, bus=bus)
 
 

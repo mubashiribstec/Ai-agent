@@ -45,6 +45,7 @@ class Agent:
         skills: SkillManager | None = None,
         bus: EventBus | None = None,
         approve: ApproveCallback | None = None,
+        gen_params: dict | None = None,
         agent_id: str | None = None,
         name: str = "agent",
         role: str = "operator",
@@ -70,6 +71,8 @@ class Agent:
         )
         self._max_steps = int(max_steps or config.agent.get("max_steps", 25))
         self._temperature = float(config.agent.get("temperature", 0.7))
+        # generation params: temperature / effort / thinking / max_tokens
+        self.gen_params: dict = gen_params or {}
         # live control
         self._pause = asyncio.Event()
         self._pause.set()  # set == not paused
@@ -77,6 +80,15 @@ class Agent:
         self.status = "idle"
         self.current_tool: str | None = None
         self.steps_taken = 0
+
+    def load_history(self, limit: int = 40) -> None:
+        """Seed short-term memory from the persisted session so chat continues."""
+        if not self.memory or self.memory.session_id is None:
+            return
+        rows = self.memory.store.session_messages(self.memory.session_id)
+        for row in rows[-limit:]:
+            role = Role.USER if row["role"] == "user" else Role.ASSISTANT
+            self.stm.add(Message(role=role, content=row["content"]))
 
     async def _emit(self, type_: EventType, **data) -> None:
         # tag every event with this agent's identity + run for the monitor
@@ -187,10 +199,9 @@ class Agent:
     async def _stream_assistant(self, messages, tool_specs) -> Message | None:
         """Stream one assistant turn, isolating provider failures."""
         assistant: Message | None = None
+        params = {"temperature": self._temperature, **self.gen_params}
         try:
-            async for ev in self.provider.stream(
-                messages, tool_specs, temperature=self._temperature
-            ):
+            async for ev in self.provider.stream(messages, tool_specs, **params):
                 if ev.kind == StreamKind.TOKEN:
                     await self._emit(EventType.TOKEN, text=ev.text)
                 elif ev.kind == StreamKind.DONE:
@@ -234,8 +245,8 @@ class Agent:
         """Self-improvement: reflect, then consolidate memory and skills."""
         if not (self.reflector and self.skills and self.config.skills.get("reflect_after_tasks", True)):
             return
-        if tool_steps < int(self.config.skills.get("reflect_min_steps", 1)):
-            return  # skip reflection for trivial runs to save cost
+        if tool_steps < int(self.config.skills.get("reflect_min_steps", 0)):
+            return  # optional gate; default 0 reflects after every task (incl. chat)
         result = await self.reflector.reflect(task, transcript)
         summary = await self.skills.apply(result)
         if summary.get("facts") or summary.get("skill"):

@@ -92,6 +92,29 @@ class StreamEvent:
     message: Message | None = None
 
 
+# Reasoning "effort" → approximate thinking budget in tokens (Anthropic/Ollama).
+EFFORT_BUDGET = {"low": 1024, "medium": 4096, "high": 10000}
+_REASONING_EFFORTS = {"low", "medium", "high"}
+
+
+def extract_gen_params(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Pull the normalized generation controls out of provider kwargs.
+
+    Returns ``{effort, thinking, max_tokens}``; ``effort`` is one of
+    off/low/medium/high (or None), ``thinking`` a bool, ``max_tokens`` an int.
+    """
+    effort = kwargs.pop("effort", None)
+    if effort in (None, "off", ""):
+        effort = None
+    thinking = bool(kwargs.pop("thinking", False))
+    max_tokens = kwargs.pop("max_tokens", None)
+    return {"effort": effort, "thinking": thinking, "max_tokens": max_tokens}
+
+
+def is_reasoning_effort(effort: Any) -> bool:
+    return effort in _REASONING_EFFORTS
+
+
 class Provider(ABC):
     """Abstract LLM provider."""
 

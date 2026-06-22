@@ -129,11 +129,16 @@ class Store:
     def set_session_summary(self, session_id: int, summary: str) -> None:
         self._write("UPDATE sessions SET summary=? WHERE id=?", (summary, session_id))
 
-    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._query(
-            "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+            "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count "
+            "FROM sessions s ORDER BY created_at DESC LIMIT ?", (limit,)
         )
         return [dict(r) for r in rows]
+
+    def delete_session(self, session_id: int) -> None:
+        self._write("DELETE FROM messages WHERE session_id=?", (session_id,))
+        self._write("DELETE FROM sessions WHERE id=?", (session_id,))
 
     # -- messages --------------------------------------------------------------
     def add_message(self, session_id: int, role: str, content: str) -> None:

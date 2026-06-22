@@ -122,6 +122,41 @@ def create_app():
         await runtime.aclose()
         return {"answer": answer}
 
+    # ── Chat sessions (persistent history) ───────────────────────────────────
+    @app.get("/sessions")
+    async def list_sessions() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_sessions()
+        store.close()
+        return {"sessions": out}
+
+    @app.post("/sessions")
+    async def new_session() -> dict:
+        store = Store(load_config().db_path)
+        sid = store.create_session(title="chat")
+        store.close()
+        return {"id": sid}
+
+    @app.get("/sessions/{session_id}/messages")
+    async def session_messages(session_id: int) -> dict:
+        store = Store(load_config().db_path)
+        out = store.session_messages(session_id)
+        store.close()
+        return {"messages": out}
+
+    @app.delete("/sessions/{session_id}")
+    async def delete_session(session_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_session(session_id)
+        store.close()
+        return {"ok": True}
+
+    # ── Model presets ────────────────────────────────────────────────────────
+    @app.get("/models")
+    async def models() -> dict:
+        cfg = load_config()
+        return {"models": cfg.models, "active": cfg.model, "providers": available_providers()}
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
         await websocket.accept()
@@ -143,7 +178,32 @@ def create_app():
             except TimeoutError:
                 return False
 
-        runtime = build_runtime(bus=bus, approve=approve)
+        # Persistent session: reuse the one the client passes, else create one.
+        cfg = load_config()
+        qs_session = websocket.query_params.get("session_id")
+        session_id = int(qs_session) if qs_session and qs_session.isdigit() else None
+        if session_id is None:
+            s = Store(cfg.db_path)
+            session_id = s.create_session(title="chat")
+            s.close()
+        await websocket.send_json({"type": "session", "id": session_id})
+
+        # One runtime at a time; rebuilt (and history-reloaded) on model switch.
+        current = {"model": None, "runtime": None}
+
+        async def get_runtime(model: str | None, gen_params: dict):
+            model = model or cfg.model
+            if current["runtime"] is None or current["model"] != model:
+                if current["runtime"] is not None:
+                    await current["runtime"].aclose()
+                current["runtime"] = build_runtime(
+                    bus=bus, approve=approve, model=model,
+                    gen_params=gen_params, session_id=session_id,
+                )
+                current["model"] = model
+            else:
+                current["runtime"].agent.gen_params = gen_params
+            return current["runtime"]
 
         async def forward() -> None:
             async for ev in bus.stream():
@@ -151,8 +211,11 @@ def create_app():
 
         forwarder = asyncio.create_task(forward())
 
-        async def handle_task(task: str) -> None:
-            await runtime.agent.run(task)
+        async def handle_task(msg: dict) -> None:
+            gen_params = {k: msg[k] for k in ("effort", "thinking", "max_tokens", "temperature")
+                          if msg.get(k) is not None}
+            runtime = await get_runtime(msg.get("model"), gen_params)
+            await runtime.agent.run(msg.get("task", ""))
             await websocket.send_json({"type": "done"})
 
         try:
@@ -160,7 +223,7 @@ def create_app():
                 msg = await websocket.receive_json()
                 kind = msg.get("type")
                 if kind == "task":
-                    asyncio.create_task(handle_task(msg.get("task", "")))
+                    asyncio.create_task(handle_task(msg))
                 elif kind == "approval":
                     fut = pending.pop(msg.get("id", ""), None)
                     if fut and not fut.done():
@@ -170,7 +233,8 @@ def create_app():
         finally:
             await bus.close()
             forwarder.cancel()
-            await runtime.aclose()
+            if current["runtime"] is not None:
+                await current["runtime"].aclose()
 
     # ── Multi-agent orchestration + deep monitoring ──────────────────────────
     @app.post("/orchestrate")
@@ -290,6 +354,7 @@ def create_app():
             "roles": cfg.roles,
             "mcp": cfg.mcp,
             "tools_enabled": cfg.tools.get("enabled", []),
+            "models": cfg.models,
             "providers": available_providers(),
             "secrets": secret_status(),
         }
