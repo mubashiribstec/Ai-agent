@@ -157,3 +157,13 @@ body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background:
 .markdown table { border-collapse: collapse; } .markdown td, .markdown th {
   border: 1px solid var(--border); padding: 6px 10px; }
 .markdown a { color: var(--accent); }
+
+/* ── chat model bar + new chat ─────────────────────────────────────────── */
+.modelbar { display: flex; gap: 12px; align-items: center; padding: 8px 16px;
+  border-bottom: 1px solid var(--border); background: var(--panel); font-size: 13px; }
+.modelbar select { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
+.modelbar .eff, .modelbar .think { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+.sidebar .newchat { width: 100%; padding: 8px; margin: 8px 0 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
+.sidebar .newchat:hover { border-color: var(--accent); color: var(--accent); }

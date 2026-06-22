@@ -55,6 +55,8 @@ export function Settings() {
         <p className="dim">Providers: {(cfg.providers ?? []).join(", ")}</p>
       </div>
 
+      <ModelsManager models={cfg.models ?? []} onSave={async (m) => { await save({ models: m }); reload(); }} />
+
       <div className="card">
         <h3>API keys</h3>
         {SECRET_KEYS.map((k) => (
@@ -137,6 +139,36 @@ export function Settings() {
       </div>
 
       <UpdatePanel />
+    </div>
+  );
+}
+
+function ModelsManager({ models, onSave }:
+  { models: any[]; onSave: (m: any[]) => void }) {
+  const blank = { label: "", model: "", temperature: 0.7, effort: "off", thinking: false };
+  const [draft, setDraft] = useState(blank);
+  return (
+    <div className="card">
+      <h3>Models ({models.length})</h3>
+      <ul className="list">
+        {models.map((m, i) => (
+          <li key={i}><b>{m.label}</b> <span className="dim">{m.model} · {m.effort}{m.thinking ? " · think" : ""}</span>
+            <button className="x" onClick={() => onSave(models.filter((_, j) => j !== i))}>✕</button>
+          </li>
+        ))}
+      </ul>
+      <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+        <input placeholder="label" value={draft.label}
+               onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+        <input placeholder="provider:model" value={draft.model}
+               onChange={(e) => setDraft({ ...draft, model: e.target.value })} />
+        <select value={draft.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value })}>
+          {["off", "low", "medium", "high"].map((x) => <option key={x}>{x}</option>)}
+        </select>
+        <label className="check"><input type="checkbox" checked={draft.thinking}
+               onChange={(e) => setDraft({ ...draft, thinking: e.target.checked })} />think</label>
+        <button onClick={() => { if (draft.label && draft.model) { onSave([...models, draft]); setDraft(blank); } }}>Add</button>
+      </div>
     </div>
   );
 }

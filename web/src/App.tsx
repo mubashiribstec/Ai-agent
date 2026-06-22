@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ApprovalRequest, XplogentEvent, XplogentSocket, getConfig, getSkills } from "./api";
+import {
+  ApprovalRequest, XplogentEvent, XplogentSocket,
+  getSessionMessages, getSkills, newSession,
+} from "./api";
+import { GenChoice, ModelBar } from "./ModelBar";
 import { MissionControl } from "./MissionControl";
 import { Settings } from "./Settings";
 import { Guide } from "./Guide";
@@ -37,14 +41,17 @@ export function App() {
 }
 
 function ChatView() {
-  const [model, setModel] = useState<string>("…");
   const [skills, setSkills] = useState<{ name: string; description: string; uses: number }[]>([]);
   const [log, setLog] = useState<LogLine[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
+  const [gen, setGen] = useState<GenChoice>({ model: "", effort: "off", thinking: false });
   const sock = useRef<XplogentSocket | null>(null);
   const bottom = useRef<HTMLDivElement | null>(null);
+  const sessionId = useRef<number | null>(
+    Number(localStorage.getItem("xplogent_session")) || null
+  );
 
   // Append to the streaming assistant line, or start a new one.
   const pushAssistantToken = (text: string) =>
@@ -74,6 +81,10 @@ function ChatView() {
         setLog((l) => [...l, { kind: "note", text: `✨ learned ${ev.facts} fact(s)${ev.skill ? `, skill '${ev.skill}'` : ""}` }]);
         refreshSkills();
         break;
+      case "session":
+        sessionId.current = Number(ev.id);
+        localStorage.setItem("xplogent_session", String(ev.id));
+        break;
       case "approval_required":
         setApproval(ev as unknown as ApprovalRequest);
         break;
@@ -85,19 +96,41 @@ function ChatView() {
 
   const refreshSkills = () => getSkills().then((s) => setSkills(s.skills)).catch(() => {});
 
+  const connect = () => {
+    sock.current?.close();
+    sock.current = new XplogentSocket(handleEvent, sessionId.current);
+  };
+
   useEffect(() => {
-    getConfig().then((c) => setModel(String(c.model ?? "unknown"))).catch(() => setModel("offline"));
     refreshSkills();
-    sock.current = new XplogentSocket(handleEvent);
+    // Restore the previous conversation, then connect to that session.
+    if (sessionId.current) {
+      getSessionMessages(sessionId.current).then((r) => {
+        setLog(r.messages.map((m: any) => ({
+          kind: m.role === "user" ? "user" : "assistant", text: m.content,
+        })));
+      }).catch(() => {});
+    }
+    connect();
     return () => sock.current?.close();
   }, []);
 
   useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
+  const newChat = async () => {
+    const { id } = await newSession();
+    sessionId.current = id;
+    localStorage.setItem("xplogent_session", String(id));
+    setLog([]);
+    connect();
+  };
+
   const send = () => {
     if (!input.trim() || busy) return;
     setLog((l) => [...l, { kind: "user", text: input }]);
-    sock.current?.sendTask(input);
+    sock.current?.sendTask(input, {
+      model: gen.model || undefined, effort: gen.effort, thinking: gen.thinking,
+    });
     setInput("");
     setBusy(true);
   };
@@ -111,7 +144,7 @@ function ChatView() {
     <div className="app">
       <aside className="sidebar">
         <h1>🧠 Xplogent</h1>
-        <div className="model">model: <b>{model}</b></div>
+        <button className="newchat" onClick={newChat}>+ New chat</button>
         <h2>Learned skills</h2>
         {skills.length === 0 && <p className="dim">none yet</p>}
         <ul>
@@ -124,6 +157,7 @@ function ChatView() {
       </aside>
 
       <main className="chat">
+        <ModelBar value={gen} onChange={setGen} />
         <div className="log">
           {log.map((line, i) => (
             <div key={i} className={`line ${line.kind}`}>

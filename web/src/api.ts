@@ -23,18 +23,25 @@ export async function getSkills(): Promise<{ skills: { name: string; description
   return r.json();
 }
 
+export interface TaskOptions {
+  model?: string;
+  effort?: string;
+  thinking?: boolean;
+  temperature?: number;
+}
+
 export class XplogentSocket {
   private ws: WebSocket;
 
-  constructor(onEvent: (ev: XplogentEvent) => void, onOpen?: () => void) {
+  constructor(onEvent: (ev: XplogentEvent) => void, sessionId?: number | null) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const qs = sessionId ? `?session_id=${sessionId}` : "";
+    this.ws = new WebSocket(`${proto}://${location.host}/ws${qs}`);
     this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
-    if (onOpen) this.ws.onopen = onOpen;
   }
 
-  sendTask(task: string) {
-    this.ws.send(JSON.stringify({ type: "task", task }));
+  sendTask(task: string, opts: TaskOptions = {}) {
+    this.ws.send(JSON.stringify({ type: "task", task, ...opts }));
   }
 
   resolveApproval(id: string, allowed: boolean) {
@@ -139,6 +146,35 @@ export async function health(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ── Models & sessions ─────────────────────────────────────────────────────────
+export interface ModelPreset {
+  label: string;
+  model: string;
+  temperature?: number;
+  effort?: string;
+  thinking?: boolean;
+}
+
+export async function getModels(): Promise<{ models: ModelPreset[]; active: string }> {
+  return (await fetch("/models")).json();
+}
+
+export async function getSessions(): Promise<{ sessions: any[] }> {
+  return (await fetch("/sessions")).json();
+}
+
+export async function newSession(): Promise<{ id: number }> {
+  return (await fetch("/sessions", { method: "POST" })).json();
+}
+
+export async function getSessionMessages(id: number): Promise<{ messages: any[] }> {
+  return (await fetch(`/sessions/${id}/messages`)).json();
+}
+
+export async function deleteSession(id: number) {
+  await fetch(`/sessions/${id}`, { method: "DELETE" });
 }
 
 // ── Guide ─────────────────────────────────────────────────────────────────────
