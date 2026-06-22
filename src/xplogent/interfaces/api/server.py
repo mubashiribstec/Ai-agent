@@ -57,6 +57,7 @@ def create_app():
         specs: list[AgentSpecModel] | None = None
         max_concurrent: int | None = None
         mode: str = "auto"
+        auto_approve: bool = True
 
     class ConfigPatch(BaseModel):
         updates: dict = {}
@@ -245,7 +246,18 @@ def create_app():
         ``/runs/{id}`` and ``/agents``.
         """
         mbus = EventBus()
-        runtime = build_orchestrator(bus=mbus)
+
+        # Without a human at the keyboard, confirm-tier tools would be blocked.
+        # Auto-approve up to high risk so agents can actually run shell/python/web;
+        # critical ops stay denied by the role policy + deny-list.
+        approve = None
+        if req.auto_approve:
+            from xplogent.safety.approval import RiskLevel
+
+            async def approve(reqo: ApprovalRequest) -> bool:  # noqa: F811
+                return reqo.risk != RiskLevel.CRITICAL
+
+        runtime = build_orchestrator(bus=mbus, approve=approve)
         orch = runtime.orchestrator
         recorder = TraceRecorder(mbus, runtime.store, orch.run_id)
         recorder.start()
@@ -438,10 +450,11 @@ def create_app():
         if not pulled["ok"]:
             return {"ok": False, "stage": "pull", "output": pulled["output"]}
         installed = await asyncio.to_thread(updater.reinstall)
+        web = await asyncio.to_thread(updater.rebuild_web)  # so GUI changes deploy
         # Re-exec shortly after this response flushes so new code loads.
         asyncio.get_event_loop().call_later(0.5, lambda: updater.restart(_serve_args))
-        return {"ok": True, "restarting": True,
-                "pull": pulled["output"], "install": installed["output"]}
+        return {"ok": True, "restarting": True, "pull": pulled["output"],
+                "install": installed["output"], "web": web.get("output") or web.get("skipped")}
 
     # ── In-app guide ─────────────────────────────────────────────────────────
     @app.get("/guide")

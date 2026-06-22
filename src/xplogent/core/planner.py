@@ -13,21 +13,26 @@ from xplogent.core.taskboard import Task
 from xplogent.providers.base import Message, Provider, Role
 
 _PROMPT = """You are the planner of a multi-agent AI system. Break the user's GOAL \
-into a small number (2-5) of concrete subtasks that specialized agents can execute \
-in parallel where possible.
+into concrete subtasks that specialized agents execute in parallel where possible.
 
 Available roles: {roles}.
+Team size hint: up to {count} agents may run at once.
 
 Return ONLY a JSON array; each item:
 {{
   "id": "t1",
   "title": "short title",
-  "description": "what this agent must do, self-contained",
+  "description": "what this agent must do, self-contained and specific",
   "role": "one of the available roles",
   "deps": ["ids of subtasks that must finish first"]
 }}
 Rules:
-- Use as few subtasks as the goal needs; prefer parallelism (empty deps) when possible.
+- If the GOAL implies MULTIPLE agents or approaches ("all agents", "each", \
+"different methods/sites/sources", "compare ways"), create EXACTLY {count} \
+parallel subtasks (empty deps), each using a DISTINCT method — name the specific \
+method in the description (e.g. different sites/commands/libraries). Then add ONE \
+final synthesis task that depends on them.
+- Otherwise use as few subtasks as the goal needs; prefer parallelism.
 - Put synthesis/aggregation tasks last, depending on the others.
 - Do not wrap the JSON in markdown fences."""
 
@@ -48,9 +53,10 @@ class Planner:
     def __init__(self, provider: Provider) -> None:
         self.provider = provider
 
-    async def decompose(self, goal: str, roles: list[str]) -> list[Task]:
+    async def decompose(self, goal: str, roles: list[str], count: int = 3) -> list[Task]:
         messages = [
-            Message(role=Role.SYSTEM, content=_PROMPT.format(roles=", ".join(roles))),
+            Message(role=Role.SYSTEM,
+                    content=_PROMPT.format(roles=", ".join(roles), count=count)),
             Message(role=Role.USER, content=f"GOAL:\n{goal}"),
         ]
         try:

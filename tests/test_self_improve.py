@@ -55,3 +55,14 @@ async def test_skill_saved_then_recalled(tmp_path):
     recalled = await mem.relevant_skills("how to deploy the website")
     assert recalled and recalled[0].name == "deploy_site"
     store.close()
+
+
+def test_first_user_message_titles_the_session(tmp_path):
+    store = Store(tmp_path / "m.db")
+    sid = store.create_session("chat")
+    mem = MemoryManager(store, Embedder(ScriptedProvider([])), session_id=sid)
+    mem.log("user", "what is my public ip address")
+    mem.log("assistant", "it is 1.2.3.4")
+    mem.log("user", "second question")          # must NOT overwrite the title
+    title = store.list_sessions()[0]["title"]
+    assert title == "what is my public ip address"

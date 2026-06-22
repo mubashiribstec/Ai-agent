@@ -276,7 +276,11 @@ def update() -> None:
     if pulled["ok"]:
         console.print("[cyan]reinstalling…[/]")
         updater.reinstall()
-        console.print("[green]Updated.[/] Restart [bold]xplogent up[/] to apply.")
+        console.print("[cyan]rebuilding dashboard…[/]")
+        web = updater.rebuild_web()
+        if web.get("skipped"):
+            console.print(f"[dim]dashboard: {web['skipped']}[/]")
+        console.print("[green]Updated.[/] Restart [bold]xplogent up[/] (or 'xplogent restart') to apply.")
 
 
 @app.command()

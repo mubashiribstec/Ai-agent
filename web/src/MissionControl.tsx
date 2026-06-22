@@ -7,6 +7,7 @@ import { AgentMsg, MessageFeed } from "./MessageFeed";
 export function MissionControl() {
   const [goal, setGoal] = useState("");
   const [maxConcurrent, setMaxConcurrent] = useState(3);
+  const [autoApprove, setAutoApprove] = useState(true);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Record<string, AgentState>>({});
@@ -67,7 +68,9 @@ export function MissionControl() {
     if (!goal.trim() || running) return;
     setAgents({}); setTasks({}); setMessages([]);
     setRunning(true);
-    const { run_id } = await orchestrate({ goal, max_concurrent: maxConcurrent, mode: "auto" });
+    const { run_id } = await orchestrate({
+      goal, max_concurrent: maxConcurrent, mode: "auto", auto_approve: autoApprove,
+    });
     setRunId(run_id);
     sock.current = new MonitorSocket(run_id, handle);
   };
@@ -85,6 +88,10 @@ export function MissionControl() {
           max agents: <b>{maxConcurrent}</b>
           <input type="range" min={1} max={8} value={maxConcurrent}
                  onChange={(e) => setMaxConcurrent(Number(e.target.value))} />
+        </label>
+        <label className="slider" title="Agents run tools without prompting; critical ops still blocked.">
+          <input type="checkbox" checked={autoApprove}
+                 onChange={(e) => setAutoApprove(e.target.checked)} /> auto-approve
         </label>
         <button onClick={launch} disabled={running && !!runId}>Launch team</button>
       </div>

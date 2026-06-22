@@ -59,6 +59,7 @@ export interface OrchestrateOptions {
   specs?: { name: string; role: string; task: string }[];
   max_concurrent?: number;
   mode?: string;
+  auto_approve?: boolean;
 }
 
 export async function orchestrate(opts: OrchestrateOptions): Promise<{ run_id: string }> {

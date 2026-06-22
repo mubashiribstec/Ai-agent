@@ -83,12 +83,13 @@ class Orchestrator:
         self.peak_concurrency = 0
 
     # -- worker construction ---------------------------------------------------
-    def _make_worker(self, name: str, role: str, model: str | None = None) -> Agent:
+    def _make_worker(self, name: str, role: str, model: str | None = None,
+                     agent_id: str | None = None) -> Agent:
         profile = PermissionProfile.from_role(role, self.config.roles)
         provider = build_provider(model or self.config.model)
         self._providers.append(provider)
 
-        agent_id = uuid.uuid4().hex[:8]
+        agent_id = agent_id or uuid.uuid4().hex[:8]
         tools = self.base_tools.filtered(profile.tool_filter())
         if self.config.orchestrator.get("enable_collab_tools", True):
             for tool in collab_tools(self.message_bus, agent_id, name):
@@ -159,15 +160,22 @@ class Orchestrator:
         }
 
     async def run_goal(self, goal: str, max_concurrent: int | None = None, mode: str = "auto") -> dict:
-        self._sem = asyncio.Semaphore(max_concurrent or self.default_max)
+        count = max_concurrent or self.default_max
+        self._sem = asyncio.Semaphore(count)
         self.store.create_run(self.run_id, goal=goal, mode=mode)
 
         planner = Planner(build_provider(self.config.reflection_model))
         self._providers.append(planner.provider)
         roles = [r for r in self.config.roles] or ["operator"]
-        tasks = await planner.decompose(goal, roles)
+        tasks = await planner.decompose(goal, roles, count=count)
+        # Pre-assign + register every teammate so each agent sees the whole team
+        # from the start (broadcast / list_agents / send_message).
+        self._task_agent_ids: dict[str, str] = {}
         for t in tasks:
             self.board.add(t)
+            aid = uuid.uuid4().hex[:8]
+            self._task_agent_ids[t.id] = aid
+            self.message_bus.register_agent(aid, f"{t.role}-{t.id}", t.role)
         await self.bus.publish(Event(
             type=EventType.RUN_PROGRESS,
             data={"run_id": self.run_id, "planned_tasks": len(tasks)},
@@ -198,7 +206,9 @@ class Orchestrator:
 
     async def _run_task(self, task: Task) -> None:
         name = f"{task.role}-{task.id}"
-        agent = self._make_worker(name, task.role)
+        agent = self._make_worker(
+            name, task.role, agent_id=getattr(self, "_task_agent_ids", {}).get(task.id)
+        )
         await self.board.claim(task.id, name)
         prompt = task.description
         deps = self.board.dependency_results(task)

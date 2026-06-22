@@ -88,6 +88,29 @@ def reinstall() -> dict:
     return {"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr).strip()}
 
 
+def rebuild_web() -> dict:
+    """Rebuild the dashboard so GUI changes actually deploy after an update.
+
+    Best-effort: a no-op (with a note) when Node/npm isn't installed.
+    """
+    import shutil
+
+    root = repo_root()
+    web = root / "web" if root else None
+    if not web or not web.is_dir():
+        return {"ok": True, "skipped": "no web dir"}
+    if shutil.which("npm") is None:
+        return {"ok": True, "skipped": "npm not found — dashboard not rebuilt"}
+    try:
+        subprocess.run(["npm", "install", "--no-audit", "--no-fund"],
+                       cwd=str(web), capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(["npm", "run", "build"], cwd=str(web),
+                              capture_output=True, text=True, timeout=600)
+        return {"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr).strip()[-2000:]}
+    except (subprocess.SubprocessError, OSError) as exc:
+        return {"ok": False, "output": str(exc)}
+
+
 def restart(extra_args: list[str] | None = None) -> None:
     """Re-exec the current Python process (so new code loads). Does not return."""
     args = [sys.executable, "-m", "xplogent", *(extra_args or ["up"])]

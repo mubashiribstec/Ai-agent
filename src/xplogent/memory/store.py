@@ -129,6 +129,14 @@ class Store:
     def set_session_summary(self, session_id: int, summary: str) -> None:
         self._write("UPDATE sessions SET summary=? WHERE id=?", (summary, session_id))
 
+    def set_session_title(self, session_id: int, title: str) -> None:
+        """Set the title only if it's still the default, so it reads as the first message."""
+        self._write(
+            "UPDATE sessions SET title=? WHERE id=? "
+            "AND (title IS NULL OR title='' OR title='chat')",
+            (title, session_id),
+        )
+
     def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._query(
             "SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count "

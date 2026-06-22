@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ApprovalRequest, XplogentEvent, XplogentSocket,
-  getSessionMessages, getSkills, newSession,
+  deleteSession, getSessionMessages, getSessions, getSkills, newSession,
 } from "./api";
 import { GenChoice, ModelBar } from "./ModelBar";
 import { MissionControl } from "./MissionControl";
@@ -42,6 +42,7 @@ export function App() {
 
 function ChatView() {
   const [skills, setSkills] = useState<{ name: string; description: string; uses: number }[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
   const [log, setLog] = useState<LogLine[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,6 +53,7 @@ function ChatView() {
   const sessionId = useRef<number | null>(
     Number(localStorage.getItem("xplogent_session")) || null
   );
+  const [activeId, setActiveId] = useState<number | null>(sessionId.current);
 
   // Append to the streaming assistant line, or start a new one.
   const pushAssistantToken = (text: string) =>
@@ -90,28 +92,40 @@ function ChatView() {
         break;
       case "done":
         setBusy(false);
+        refreshSkills();
+        refreshSessions();
         break;
     }
   };
 
   const refreshSkills = () => getSkills().then((s) => setSkills(s.skills)).catch(() => {});
+  const refreshSessions = () => getSessions().then((s) => setSessions(s.sessions)).catch(() => {});
 
   const connect = () => {
     sock.current?.close();
     sock.current = new XplogentSocket(handleEvent, sessionId.current);
   };
 
-  useEffect(() => {
-    refreshSkills();
-    // Restore the previous conversation, then connect to that session.
-    if (sessionId.current) {
-      getSessionMessages(sessionId.current).then((r) => {
+  const loadSession = (id: number | null) => {
+    sessionId.current = id;
+    setActiveId(id);
+    if (id) {
+      localStorage.setItem("xplogent_session", String(id));
+      getSessionMessages(id).then((r) => {
         setLog(r.messages.map((m: any) => ({
           kind: m.role === "user" ? "user" : "assistant", text: m.content,
         })));
-      }).catch(() => {});
+      }).catch(() => setLog([]));
+    } else {
+      setLog([]);
     }
     connect();
+  };
+
+  useEffect(() => {
+    refreshSkills();
+    refreshSessions();
+    loadSession(sessionId.current);
     return () => sock.current?.close();
   }, []);
 
@@ -119,10 +133,14 @@ function ChatView() {
 
   const newChat = async () => {
     const { id } = await newSession();
-    sessionId.current = id;
-    localStorage.setItem("xplogent_session", String(id));
-    setLog([]);
-    connect();
+    loadSession(id);
+    refreshSessions();
+  };
+
+  const removeSession = async (id: number) => {
+    await deleteSession(id);
+    if (id === activeId) { localStorage.removeItem("xplogent_session"); loadSession(null); }
+    refreshSessions();
   };
 
   const send = () => {
@@ -145,6 +163,18 @@ function ChatView() {
       <aside className="sidebar">
         <h1>🧠 Xplogent</h1>
         <button className="newchat" onClick={newChat}>+ New chat</button>
+        <h2>Chats</h2>
+        {sessions.length === 0 && <p className="dim">no chats yet</p>}
+        <ul className="chatlist">
+          {sessions.map((s) => (
+            <li key={s.id} className={s.id === activeId ? "active" : ""}>
+              <button className="open" onClick={() => loadSession(s.id)} title={s.title}>
+                {s.title || "chat"} <span className="dim">· {s.message_count ?? 0}</span>
+              </button>
+              <button className="x" onClick={() => removeSession(s.id)}>✕</button>
+            </li>
+          ))}
+        </ul>
         <h2>Learned skills</h2>
         {skills.length === 0 && <p className="dim">none yet</p>}
         <ul>

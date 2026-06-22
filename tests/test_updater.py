@@ -44,3 +44,31 @@ def test_check_update_no_git(monkeypatch):
 def test_pull_not_a_checkout(monkeypatch):
     monkeypatch.setattr(updater, "repo_root", lambda: None)
     assert updater.pull()["ok"] is False
+
+
+def test_rebuild_web_runs_npm(monkeypatch, tmp_path):
+    web = tmp_path / "web"
+    web.mkdir()
+    monkeypatch.setattr(updater, "repo_root", lambda: tmp_path)
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda _x: "/usr/bin/npm")
+    calls = []
+
+    class _R:
+        returncode = 0
+        stdout = "built"
+        stderr = ""
+
+    monkeypatch.setattr(updater.subprocess, "run",
+                        lambda cmd, **k: calls.append(cmd) or _R())
+    res = updater.rebuild_web()
+    assert res["ok"]
+    assert any("build" in c for c in calls)
+
+
+def test_rebuild_web_no_npm(monkeypatch, tmp_path):
+    (tmp_path / "web").mkdir()
+    monkeypatch.setattr(updater, "repo_root", lambda: tmp_path)
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda _x: None)
+    assert "skipped" in updater.rebuild_web()

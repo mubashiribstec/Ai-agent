@@ -34,6 +34,9 @@ class MemoryManager:
         """Record a message in the current session (episodic memory)."""
         if self.session_id is not None and content:
             self.store.add_message(self.session_id, role, content)
+            # Name the session after its first user message so the sidebar reads well.
+            if role == "user":
+                self.store.set_session_title(self.session_id, content[:60])
 
     # -- long-term facts -------------------------------------------------------
     async def remember(self, content: str, source: str = "") -> int:

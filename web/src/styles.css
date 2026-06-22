@@ -167,3 +167,15 @@ body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background:
 .sidebar .newchat { width: 100%; padding: 8px; margin: 8px 0 12px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; }
 .sidebar .newchat:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── chat session list ─────────────────────────────────────────────────── */
+.sidebar .chatlist { list-style: none; padding: 0; margin: 0 0 8px; }
+.sidebar .chatlist li { display: flex; align-items: center; gap: 4px;
+  border-bottom: 1px solid var(--border); }
+.sidebar .chatlist li.active { background: #1f6feb22; border-radius: 6px; }
+.sidebar .chatlist .open { flex: 1; text-align: left; background: transparent; border: none;
+  color: var(--text); cursor: pointer; padding: 7px 6px; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .chatlist .x { background: transparent; border: none; color: var(--dim);
+  cursor: pointer; padding: 0 6px; }
+.sidebar .chatlist .x:hover { color: var(--red); }
