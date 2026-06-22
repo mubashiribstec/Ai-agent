@@ -172,6 +172,64 @@ def up(port: int = 8765, host: str = "127.0.0.1", no_browser: bool = False) -> N
 
 
 @app.command()
+def start(port: int = 8765, host: str = "127.0.0.1") -> None:
+    """Run Xplogent in the background (survives closing the terminal)."""
+    from xplogent.core import service
+
+    res = service.start(port=port, host=host)
+    if res.get("already_running"):
+        console.print(f"[yellow]already running[/] (pid {res.get('pid')}) on :{res.get('port')}")
+    else:
+        console.print(f"[green]started[/] pid {res.get('pid')} → http://{host}:{port}")
+        console.print("[dim]use 'xplogent stop' to stop, 'xplogent status' to check.[/]")
+
+
+@app.command()
+def stop() -> None:
+    """Stop the background Xplogent server."""
+    from xplogent.core import service
+
+    res = service.stop()
+    console.print("[green]stopped[/]" if res.get("stopped") else f"[dim]{res.get('reason','not running')}[/]")
+
+
+@app.command()
+def status() -> None:
+    """Show whether the background server is running."""
+    from xplogent.core import service
+
+    s = service.status()
+    if s.get("running"):
+        health = "[green]healthy[/]" if s.get("healthy") else "[yellow]starting[/]"
+        console.print(f"running (pid {s.get('pid')}) on :{s.get('port')} — {health}")
+    else:
+        console.print("[dim]not running[/]")
+
+
+@app.command()
+def restart(port: int = 8765, host: str = "127.0.0.1") -> None:
+    """Restart the background server."""
+    from xplogent.core import service
+
+    service.restart(port=port, host=host)
+    console.print("[green]restarted[/]")
+
+
+@app.command()
+def service(action: str) -> None:
+    """Install/uninstall an OS service for boot auto-start: install | uninstall."""
+    from xplogent.core import service as svc
+
+    if action == "install":
+        res = svc.install_service()
+        console.print(res)
+    elif action == "uninstall":
+        console.print(svc.uninstall_service())
+    else:
+        console.print("[red]use: xplogent service install | uninstall[/]")
+
+
+@app.command()
 def setup() -> None:
     """Interactive first-run wizard: pick a provider/model and save settings."""
     console.print(Panel("Let's set up Xplogent.", title="⚙ setup", border_style="cyan"))

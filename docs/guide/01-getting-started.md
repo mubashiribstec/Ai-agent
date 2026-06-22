@@ -32,12 +32,24 @@ for you. Everything is saved under `~/.xplogent/`.
 ## Launch
 
 ```bash
-xplogent up
+xplogent up        # foreground: opens the dashboard in your browser
 ```
 
-This starts the backend, serves the dashboard, and opens your browser. From
-there you can chat, run multi-agent teams in **Mission Control**, change every
-setting in **Settings**, and read this guide.
+### Keep it running in the background
+
+```bash
+xplogent start     # detached — keeps running after you close the terminal
+xplogent status    # is it up?
+xplogent stop      # stop it
+xplogent service install   # optional: auto-start at login/boot
+```
+
+Open the dashboard at `http://127.0.0.1:8765`. From there you can chat (with a
+**model switcher** and effort/thinking controls), run multi-agent teams in
+**Mission Control**, change every setting in **Settings**, and read this guide.
+
+Setup is **one time** — your choices are saved under `~/.xplogent`, so `start`/`up`
+just work afterward.
 
 Prefer the terminal? `xplogent chat` for a single agent, or
 `xplogent orchestrate "your goal" --max 3` for a team.
