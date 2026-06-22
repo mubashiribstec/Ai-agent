@@ -71,13 +71,16 @@ swappable.
 ## Quick start (easy path)
 
 ```bash
-bash install.sh        # Windows: ./install.ps1   (venv + install + build dashboard)
-xplogent setup         # pick provider/model, enter a key (or use local Ollama)
-xplogent up            # starts the backend, opens the dashboard in your browser
+bash install.sh        # Windows: ./install.ps1   (pipx/venv + PATH + build dashboard)
+xplogent setup         # one time: pick provider/model, enter a key (or use local Ollama)
+xplogent up            # foreground: opens the dashboard in your browser
+# or run it in the background (survives closing the terminal):
+xplogent start         # xplogent status / xplogent stop ; service install for boot auto-start
 ```
 
-That's it. The dashboard has four tabs:
-- **Chat** — talk to a single agent.
+Setup is one-time (saved in `~/.xplogent`). The dashboard has four tabs:
+- **Chat** — talk to a single agent, **switch models on the fly**, set effort /
+  thinking, and your conversation **persists** across reloads (with New chat).
 - **Mission Control** — launch multi-agent teams and watch them live.
 - **Settings** — change *everything* from the GUI: model, API keys (masked),
   safety policy, concurrency, tool toggles, role/permission editor, memory &

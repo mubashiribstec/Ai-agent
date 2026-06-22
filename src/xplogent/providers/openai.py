@@ -66,17 +66,20 @@ class OpenAIProvider(Provider):
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         gen = extract_gen_params(kwargs)
+        reasoning = self._is_reasoning_model()
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
             "stream": True,
-            "temperature": temperature,
         }
+        # Reasoning models (o-series / gpt-5) reject a custom temperature.
+        if not reasoning:
+            payload["temperature"] = temperature
         if gen["max_tokens"]:
-            payload["max_tokens"] = gen["max_tokens"]
-        # Reasoning effort only applies to reasoning models (o-series / gpt-5);
-        # sending it to others can be rejected, so guard by model name.
-        if is_reasoning_effort(gen["effort"]) and self._is_reasoning_model():
+            payload["max_completion_tokens" if reasoning else "max_tokens"] = gen["max_tokens"]
+        # Reasoning effort only applies to reasoning models; sending it to
+        # others can be rejected, so guard by model name.
+        if is_reasoning_effort(gen["effort"]) and reasoning:
             payload["reasoning_effort"] = gen["effort"]
         if tools:
             payload["tools"] = [t.to_openai() for t in tools]
