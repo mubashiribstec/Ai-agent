@@ -63,6 +63,50 @@ def _can_launch() -> tuple[bool, str]:
     return True, ""
 
 
+def _child_env() -> dict:
+    """Environment for a detached child: force UTF-8 I/O.
+
+    Without this, the child's stdout/stderr (redirected to a logfile) defaults to
+    the locale encoding (cp1252 on Windows), and printing the rich startup banner
+    (emoji + box-drawing) raises UnicodeEncodeError and kills the process.
+    """
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    return env
+
+
+def _creationflags() -> int:
+    """Windows flags to run detached but with a hidden console (survives shell close)."""
+    if is_windows():
+        # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP. CREATE_NO_WINDOW keeps a hidden
+        # console so console-touching init works, unlike DETACHED_PROCESS which removes it.
+        return 0x08000000 | 0x00000200
+    return 0
+
+
+def launch_detached(cmd: list[str]) -> subprocess.Popen:
+    """Spawn ``cmd`` detached from the terminal, logging to the server logfile (UTF-8)."""
+    kwargs: dict = {"stdin": subprocess.DEVNULL, "cwd": str(_workdir()), "env": _child_env()}
+    if is_windows():
+        kwargs["creationflags"] = _creationflags()
+    else:
+        kwargs["start_new_session"] = True
+    # UTF-8 logfile so the child never hits UnicodeEncodeError on a redirected stream.
+    with open(_log_path(), "a", encoding="utf-8", errors="replace") as logf:  # noqa: SIM115
+        kwargs["stdout"] = logf
+        kwargs["stderr"] = logf
+        return subprocess.Popen(cmd, **kwargs)
+
+
+def _log_tail(lines: int = 25) -> str:
+    try:
+        text = _log_path().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(text.splitlines()[-lines:])
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -89,23 +133,18 @@ def start(port: int = 8765, host: str = "127.0.0.1") -> dict:
 
     cmd = [sys.executable, "-m", "xplogent", "up",
            "--port", str(port), "--host", host, "--no-browser"]
-    # Explicit cwd + full env so config/.env resolve the same as an interactive run.
-    kwargs: dict = {"stdin": subprocess.DEVNULL, "cwd": str(_workdir()),
-                    "env": os.environ.copy()}
-    if is_windows():
-        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — fully detach from the console.
-        kwargs["creationflags"] = 0x00000008 | 0x00000200
-    else:
-        kwargs["start_new_session"] = True
-
-    # Own the logfile handle in a with-block; the child keeps its own copy.
-    with open(_log_path(), "a") as logf:  # noqa: SIM115
-        kwargs["stdout"] = logf
-        kwargs["stderr"] = logf
-        proc = subprocess.Popen(cmd, **kwargs)
+    proc = launch_detached(cmd)
 
     state = {"pid": proc.pid, "port": port, "host": host, "started_at": time.time()}
     _state_path().write_text(json.dumps(state))
+
+    # Liveness check: if the child died immediately, surface the real reason
+    # instead of falsely reporting success.
+    time.sleep(1.2)
+    if proc.poll() is not None:
+        _state_path().unlink(missing_ok=True)
+        return {"ok": False, "error": f"server exited on startup (code {proc.returncode})",
+                "log": _log_tail()}
     return {"ok": True, "started": True, **state}
 
 

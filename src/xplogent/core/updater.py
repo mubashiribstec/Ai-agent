@@ -123,8 +123,11 @@ def restart(extra_args: list[str] | None = None) -> None:
         return
     _log.info("restarting: %s", " ".join(args))
     if os.name == "nt":
-        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen(args, creationflags=0x00000008 | 0x00000200)
+        # Re-launch detached with a hidden console + UTF-8 env (same safe path as
+        # `xplogent start`), then exit this process. A raw DETACHED_PROCESS Popen here
+        # would inherit the cp1252 crash on the rich startup banner.
+        from xplogent.core import service
+        service.launch_detached(args)
         os._exit(0)
     os.execv(sys.executable, args)
 

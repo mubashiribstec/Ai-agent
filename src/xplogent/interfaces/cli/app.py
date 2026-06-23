@@ -174,14 +174,30 @@ def up(port: int = 8765, host: str = "127.0.0.1", no_browser: bool = False) -> N
 @app.command()
 def start(port: int = 8765, host: str = "127.0.0.1") -> None:
     """Run Xplogent in the background (survives closing the terminal)."""
+    import time as _time
+
     from xplogent.core import service
 
     res = service.start(port=port, host=host)
     if res.get("already_running"):
         console.print(f"[yellow]already running[/] (pid {res.get('pid')}) on :{res.get('port')}")
+        return
+    if not res.get("ok"):
+        console.print(f"[red]failed to start:[/] {res.get('error', 'unknown error')}")
+        if res.get("log"):
+            console.print(Panel(res["log"], title="server.log (last lines)", border_style="red"))
+        raise typer.Exit(1)
+
+    console.print(f"[green]started[/] pid {res.get('pid')} → http://{host}:{port}")
+    # Poll until the server answers /health (or give up after ~6s).
+    for _ in range(12):
+        if service.status().get("healthy"):
+            console.print("[green]healthy[/] — dashboard ready.")
+            break
+        _time.sleep(0.5)
     else:
-        console.print(f"[green]started[/] pid {res.get('pid')} → http://{host}:{port}")
-        console.print("[dim]use 'xplogent stop' to stop, 'xplogent status' to check.[/]")
+        console.print("[yellow]starting…[/] (still booting; check 'xplogent status')")
+    console.print("[dim]use 'xplogent stop' to stop, 'xplogent status' to check.[/]")
 
 
 @app.command()
