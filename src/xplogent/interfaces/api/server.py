@@ -72,6 +72,9 @@ def create_app():
         network: bool = True
         max_steps: int = 25
 
+    class RenameBody(BaseModel):
+        title: str
+
     class FactBody(BaseModel):
         content: str
 
@@ -226,11 +229,77 @@ def create_app():
             await runtime.agent.run(msg.get("task", ""))
             await websocket.send_json({"type": "done"})
 
+        async def handle_council(msg: dict) -> None:
+            """Ask several models the same question at once, then synthesize."""
+            from xplogent.providers.base import Message, Role, StreamKind
+
+            models = [m for m in msg.get("models", []) if m]
+            task = msg.get("task", "")
+            base = [Message(role=Role.SYSTEM, content="You are a helpful assistant."),
+                    Message(role=Role.USER, content=task)]
+            answers: dict[str, str] = {}
+
+            async def run_one(model: str) -> None:
+                provider = build_provider(model)
+                parts: list[str] = []
+                try:
+                    async for ev in provider.stream(base):
+                        if ev.kind == StreamKind.TOKEN:
+                            parts.append(ev.text)
+                            await websocket.send_json({"type": "council_token",
+                                                       "channel": model, "text": ev.text})
+                        elif ev.kind == StreamKind.DONE and ev.message and not parts:
+                            parts.append(ev.message.content)
+                            await websocket.send_json({"type": "council_token",
+                                                       "channel": model,
+                                                       "text": ev.message.content})
+                except Exception as exc:  # noqa: BLE001 - one model failing must not sink the rest
+                    await websocket.send_json({"type": "council_token", "channel": model,
+                                               "text": f"[error: {exc}]"})
+                finally:
+                    await provider.aclose()
+                answers[model] = "".join(parts)
+                await websocket.send_json({"type": "council_done", "channel": model})
+
+            await asyncio.gather(*[run_one(m) for m in models])
+
+            synthesis = ""
+            if msg.get("synthesize", True) and answers:
+                synth_model = msg.get("synth_model") or models[0]
+                merged = "\n\n".join(f"[{m}]\n{a}" for m, a in answers.items())
+                sp = ("You are given answers from multiple AI models to the same question. "
+                      "Produce the single best, most accurate combined answer, noting any "
+                      f"important disagreements.\n\nQuestion:\n{task}\n\nAnswers:\n{merged}")
+                provider = build_provider(synth_model)
+                try:
+                    async for ev in provider.stream(
+                            [Message(role=Role.SYSTEM, content="You synthesize multiple answers."),
+                             Message(role=Role.USER, content=sp)]):
+                        if ev.kind == StreamKind.TOKEN:
+                            synthesis += ev.text
+                            await websocket.send_json({"type": "council_token",
+                                                       "channel": "synthesis", "text": ev.text})
+                finally:
+                    await provider.aclose()
+                await websocket.send_json({"type": "council_done", "channel": "synthesis"})
+
+            # Persist the turn so it appears in history.
+            if session_id is not None:
+                store = Store(cfg.db_path)
+                store.add_message(session_id, "user", task)
+                store.set_session_title(session_id, task[:60])
+                store.add_message(session_id, "assistant",
+                                  synthesis or "\n\n".join(f"**{m}**: {a}" for m, a in answers.items()))
+                store.close()
+            await websocket.send_json({"type": "done"})
+
         try:
             while True:
                 msg = await websocket.receive_json()
                 kind = msg.get("type")
-                if kind == "task":
+                if kind == "task" and len([m for m in msg.get("models", []) if m]) > 1:
+                    asyncio.create_task(handle_council(msg))
+                elif kind == "task":
                     asyncio.create_task(handle_task(msg))
                 elif kind == "approval":
                     fut = pending.pop(msg.get("id", ""), None)

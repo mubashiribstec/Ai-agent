@@ -91,7 +91,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 # ─── dotenv + writable config (used by the setup wizard and the GUI) ──────────
-_SECRET_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
+_SECRET_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GOOGLE_API_KEY"]
 
 
 def env_path() -> Path:
