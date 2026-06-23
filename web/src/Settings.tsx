@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  addFact, deleteFact, deleteSkill, getFacts, getFullConfig, getRoles,
-  getSkills, getTools, patchConfig, putRole, putSecrets,
+  addFact, deleteFact, deleteSkill, exportKnowledge, getFacts, getFullConfig,
+  getRoles, getSkills, getTools, importKnowledge, patchConfig, putRole, putSecrets,
+  restoreBackup,
 } from "./api";
 import { UpdatePanel } from "./UpdatePanel";
 
@@ -60,6 +61,8 @@ export function Settings() {
         <p className="dim">Providers: {(cfg.providers ?? []).join(", ")}</p>
       </div>
 
+      <Appearance />
+      <BackupCard flash={flash} reload={reload} />
       <ExecutionBackend execution={cfg.execution ?? {}} onSave={save} />
 
       <ModelsManager models={cfg.models ?? []} onSave={async (m) => { await save({ models: m }); reload(); }} />
@@ -146,6 +149,80 @@ export function Settings() {
       </div>
 
       <UpdatePanel />
+    </div>
+  );
+}
+
+function Appearance() {
+  const [theme, setTheme] = useState(localStorage.getItem("xplogent_theme") || "auto");
+  const [accent, setAccent] = useState(localStorage.getItem("xplogent_accent") || "#58a6ff");
+  const applyTheme = (t: string) => {
+    setTheme(t);
+    localStorage.setItem("xplogent_theme", t);
+    if (t === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+  };
+  const applyAccent = (c: string) => {
+    setAccent(c);
+    localStorage.setItem("xplogent_accent", c);
+    document.documentElement.style.setProperty("--accent", c);
+  };
+  return (
+    <div className="card">
+      <h3>Appearance</h3>
+      <label>Theme
+        <select value={theme} onChange={(e) => applyTheme(e.target.value)}>
+          {["auto", "dark", "light"].map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </label>
+      <label className="check">Accent color
+        <input type="color" value={accent} onChange={(e) => applyAccent(e.target.value)} />
+      </label>
+    </div>
+  );
+}
+
+function BackupCard({ flash, reload }: { flash: (m: string) => void; reload: () => void }) {
+  const [msg, setMsg] = useState("");
+  const doExport = async () => {
+    const data = await exportKnowledge();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "xplogent-knowledge.json";
+    a.click();
+  };
+  const doImport = async (file: File) => {
+    const data = JSON.parse(await file.text());
+    const res = await importKnowledge(data);
+    setMsg(`+${res.facts_added} facts, +${res.skills_added} skills`
+           + (res.warnings?.length ? ` · ⚠ ${res.warnings[0]}` : ""));
+    reload();
+  };
+  const doRestore = async (file: File) => {
+    const res = await restoreBackup(await file.arrayBuffer());
+    flash(res.ok ? "restored — restart to apply" : "restore failed");
+  };
+  return (
+    <div className="card">
+      <h3>Backup &amp; knowledge</h3>
+      <p className="dim">Full backup downloads the DB + skills + config as a .tar.gz.</p>
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <a className="primary" href="/backup" style={{ padding: "8px 14px", borderRadius: 6,
+           textDecoration: "none", color: "#0d1117", background: "var(--accent)" }}>
+          Download backup
+        </a>
+        <button onClick={doExport}>Export skills + memory</button>
+        <label className="filebtn">Import knowledge
+          <input type="file" accept="application/json" style={{ display: "none" }}
+                 onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+        </label>
+        <label className="filebtn">Restore backup
+          <input type="file" accept=".gz,.tar.gz,application/gzip" style={{ display: "none" }}
+                 onChange={(e) => e.target.files?.[0] && doRestore(e.target.files[0])} />
+        </label>
+      </div>
+      {msg && <p className="ok">{msg}</p>}
     </div>
   );
 }

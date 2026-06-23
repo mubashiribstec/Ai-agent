@@ -10,6 +10,12 @@
   --magenta: #bc8cff;
 }
 
+/* Light theme: explicit opt-in via [data-theme=light]. */
+:root[data-theme="light"] {
+  --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de; --text: #1f2328;
+  --dim: #636c76; --accent: #0969da; --green: #1a7f37; --red: #cf222e; --magenta: #8250df;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
 
@@ -179,3 +185,60 @@ body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background:
 .sidebar .chatlist .x { background: transparent; border: none; color: var(--dim);
   cursor: pointer; padding: 0 6px; }
 .sidebar .chatlist .x:hover { color: var(--red); }
+
+/* ── search, skill stars ───────────────────────────────────────────────── */
+.sidebar .search { width: 100%; padding: 7px 9px; margin: 4px 0 8px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 13px; }
+.sidebar .stars { color: #e3b341; font-size: 11px; }
+
+/* ── composer stop button ──────────────────────────────────────────────── */
+.composer button.stop { background: var(--red); color: #fff; }
+
+/* ── usage / context bar ───────────────────────────────────────────────── */
+.usagebar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding: 6px 16px; border-top: 1px solid var(--border); background: var(--panel);
+  font-size: 12px; color: var(--dim); }
+.usagebar b { color: var(--text); }
+.usagebar .ctx { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.usagebar .meter { width: 90px; height: 6px; border-radius: 4px; background: var(--border);
+  overflow: hidden; }
+.usagebar .meter .fill { display: block; height: 100%; background: var(--accent); }
+
+/* ── markdown chat messages ────────────────────────────────────────────── */
+.markdown-msg p { margin: 4px 0; } .markdown-msg h3 { margin: 8px 0 4px; font-size: 16px; }
+.markdown-msg h4 { margin: 8px 0 4px; font-size: 14px; }
+.markdown-msg li { margin-left: 18px; }
+.markdown-msg code { background: var(--panel); padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, monospace; font-size: 12px; }
+.markdown-msg a { color: var(--accent); }
+.codeblock { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.codeblock .codebar { display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 10px; background: var(--panel); font-size: 11px; }
+.codeblock .codebar button { background: transparent; border: 1px solid var(--border);
+  color: var(--text); border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
+.codeblock pre { margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--bg);
+  font-family: ui-monospace, monospace; font-size: 12.5px; }
+
+/* ── council (multi-model) ─────────────────────────────────────────────── */
+.council { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.council-bar { display: flex; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.council-bar input[type="text"], .council-bar > input { flex: 1; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.council-bar select { padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
+.council-bar button { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: #0d1117; font-weight: 600; }
+.council-models { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); font-size: 13px; }
+.council-models .check { display: flex; align-items: center; gap: 6px; }
+.council-grid { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(260px, 1fr);
+  gap: 12px; padding: 16px; overflow: auto; }
+.council-col { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; overflow-y: auto; }
+.council-col.synthesis { border-color: var(--accent); }
+.council-col h3 { font-size: 13px; margin: 0 0 8px; color: var(--dim); word-break: break-all; }
+
+/* ── settings: file buttons ────────────────────────────────────────────── */
+.card .filebtn { display: inline-flex; align-items: center; padding: 8px 14px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+  color: var(--text); cursor: pointer; font-size: 13px; }

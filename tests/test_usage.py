@@ -7,7 +7,7 @@ import pytest
 from xplogent.core.agent import Agent
 from xplogent.core.config import load_config
 from xplogent.core.events import EventBus, EventType
-from xplogent.core.limits import context_window
+from xplogent.core.limits import context_window, estimate_cost
 from xplogent.providers.base import Message, Role
 from xplogent.safety.approval import SafetyManager
 from xplogent.tools.registry import ToolRegistry
@@ -20,6 +20,14 @@ def test_context_window_lookup_and_override():
     assert context_window("unknown:thing") == 8192  # default
     assert context_window("openai:gpt-4o", {"openai:gpt-4o": 999}) == 999
     assert context_window("x:my-model", {"my-model": 4242}) == 4242
+
+
+def test_estimate_cost():
+    assert estimate_cost("ollama:llama3.1", 1000, 1000) == 0.0
+    assert estimate_cost("claude-cli:sonnet", 1000, 1000) == 0.0  # subscription
+    # 1M in + 1M out of gpt-4o = 2.5 + 10 = 12.5
+    assert estimate_cost("openai:gpt-4o", 1_000_000, 1_000_000) == pytest.approx(12.5)
+    assert estimate_cost("unknown:model", 1000, 1000) == 0.0
 
 
 @pytest.mark.asyncio

@@ -327,6 +327,10 @@ def create_app():
                     asyncio.create_task(handle_council(msg))
                 elif kind == "task":
                     asyncio.create_task(handle_task(msg))
+                elif kind == "cancel":
+                    rt = current.get("runtime")
+                    if rt is not None:
+                        rt.agent.cancel()
                 elif kind == "approval":
                     fut = pending.pop(msg.get("id", ""), None)
                     if fut and not fut.done():

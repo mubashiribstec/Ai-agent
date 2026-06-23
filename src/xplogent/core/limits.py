@@ -37,6 +37,34 @@ _KNOWN: list[tuple[str, int]] = [
 ]
 
 
+# Rough USD per 1M tokens (input, output). Local models are free. Best-effort.
+_PRICING: list[tuple[str, tuple[float, float]]] = [
+    ("claude-opus", (15.0, 75.0)),
+    ("claude-sonnet", (3.0, 15.0)),
+    ("claude-haiku", (0.8, 4.0)),
+    ("gpt-4o-mini", (0.15, 0.6)),
+    ("gpt-4o", (2.5, 10.0)),
+    ("gpt-4.1", (2.0, 8.0)),
+    ("o3", (2.0, 8.0)),
+    ("o1", (15.0, 60.0)),
+    ("gemini-1.5-pro", (1.25, 5.0)),
+    ("gemini-1.5-flash", (0.075, 0.3)),
+    ("gemini", (0.3, 1.2)),
+]
+
+
+def estimate_cost(model_spec: str, input_tokens: int, output_tokens: int) -> float:
+    """Rough USD cost for a turn. Local providers (ollama/claude-cli) are 0."""
+    provider = model_spec.split(":", 1)[0].lower()
+    if provider in ("ollama", "claude-cli"):
+        return 0.0
+    name = model_spec.split(":", 1)[-1].lower()
+    for needle, (pin, pout) in _PRICING:
+        if needle in name:
+            return round(input_tokens / 1e6 * pin + output_tokens / 1e6 * pout, 6)
+    return 0.0
+
+
 def context_window(model_spec: str, overrides: dict[str, int] | None = None) -> int:
     """Return the context window (tokens) for a ``provider:model`` spec."""
     if not model_spec:

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import {
   ApprovalRequest, XplogentEvent, XplogentSocket,
   deleteSession, getSessionMessages, getSessions, getSkills, newSession,
+  renameSession, searchMemory,
 } from "./api";
 import { GenChoice, ModelBar } from "./ModelBar";
 import { MissionControl } from "./MissionControl";
 import { Settings } from "./Settings";
 import { Schedules } from "./Schedules";
+import { Council } from "./Council";
 import { Guide } from "./Guide";
+import { Markdown } from "./Markdown";
 
 interface LogLine {
   kind: "assistant" | "tool" | "result" | "note" | "user";
@@ -15,13 +18,13 @@ interface LogLine {
   ok?: boolean;
 }
 
-type Tab = "chat" | "mission" | "schedules" | "settings" | "guide";
+type Tab = "chat" | "council" | "mission" | "schedules" | "settings" | "guide";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const tabs: [Tab, string][] = [
-    ["chat", "Chat"], ["mission", "Mission Control"], ["schedules", "Schedules"],
-    ["settings", "Settings"], ["guide", "Guide"],
+    ["chat", "Chat"], ["council", "Council"], ["mission", "Mission Control"],
+    ["schedules", "Schedules"], ["settings", "Settings"], ["guide", "Guide"],
   ];
   return (
     <div className="root">
@@ -34,6 +37,7 @@ export function App() {
         ))}
       </nav>
       {tab === "chat" && <ChatView />}
+      {tab === "council" && <Council />}
       {tab === "mission" && <MissionControl />}
       {tab === "schedules" && <Schedules />}
       {tab === "settings" && <Settings />}
@@ -42,12 +46,43 @@ export function App() {
   );
 }
 
+interface Usage {
+  input_tokens?: number; output_tokens?: number;
+  session_input?: number; session_output?: number;
+  session_cost?: number;
+  context_used?: number; context_limit?: number;
+}
+
+function UsageBar({ u }: { u: Usage }) {
+  const used = u.context_used ?? 0;
+  const limit = u.context_limit ?? 0;
+  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const sess = (u.session_input ?? 0) + (u.session_output ?? 0);
+  return (
+    <div className="usagebar">
+      {u.input_tokens != null && (
+        <span>turn: <b>{u.input_tokens}</b> in / <b>{u.output_tokens}</b> out</span>
+      )}
+      {sess > 0 && <span>session: <b>{sess.toLocaleString()}</b> tok</span>}
+      {!!u.session_cost && <span>~<b>${u.session_cost.toFixed(4)}</b></span>}
+      <span className="ctx">
+        context
+        <span className="meter"><span className="fill" style={{ width: `${pct}%` }} /></span>
+        {used.toLocaleString()} / {limit.toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
 function ChatView() {
-  const [skills, setSkills] = useState<{ name: string; description: string; uses: number }[]>([]);
+  const [skills, setSkills] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [hits, setHits] = useState<any[]>([]);
   const [log, setLog] = useState<LogLine[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [gen, setGen] = useState<GenChoice>({ model: "", effort: "off", thinking: false });
   const sock = useRef<XplogentSocket | null>(null);
@@ -85,6 +120,9 @@ function ChatView() {
         setLog((l) => [...l, { kind: "note", text: `✨ learned ${ev.facts} fact(s)${ev.skill ? `, skill '${ev.skill}'` : ""}` }]);
         refreshSkills();
         break;
+      case "usage":
+        setUsage(ev as unknown as Usage);
+        break;
       case "session":
         sessionId.current = Number(ev.id);
         localStorage.setItem("xplogent_session", String(ev.id));
@@ -102,6 +140,19 @@ function ChatView() {
 
   const refreshSkills = () => getSkills().then((s) => setSkills(s.skills)).catch(() => {});
   const refreshSessions = () => getSessions().then((s) => setSessions(s.sessions)).catch(() => {});
+
+  const runSearch = (q: string) => {
+    setSearch(q);
+    if (!q.trim()) { setHits([]); return; }
+    searchMemory(q).then((r) => setHits(r.messages ?? [])).catch(() => setHits([]));
+  };
+
+  const stop = () => { sock.current?.cancel(); setBusy(false); };
+
+  const rename = async (id: number, current: string) => {
+    const title = window.prompt("Rename chat:", current);
+    if (title && title.trim()) { await renameSession(id, title.trim()); refreshSessions(); }
+  };
 
   const connect = () => {
     sock.current?.close();
@@ -165,12 +216,28 @@ function ChatView() {
       <aside className="sidebar">
         <h1>🧠 Xplogent</h1>
         <button className="newchat" onClick={newChat}>+ New chat</button>
+        <input className="search" value={search} placeholder="🔍 search chats…"
+               onChange={(e) => runSearch(e.target.value)} />
+        {search && (
+          <ul className="chatlist">
+            {hits.length === 0 && <p className="dim">no matches</p>}
+            {hits.map((h, i) => (
+              <li key={i}>
+                <button className="open" title={h.content}
+                        onClick={() => { loadSession(h.session_id); runSearch(""); }}>
+                  <span className="dim">[{h.role}]</span> {String(h.content).slice(0, 50)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <h2>Chats</h2>
         {sessions.length === 0 && <p className="dim">no chats yet</p>}
         <ul className="chatlist">
           {sessions.map((s) => (
             <li key={s.id} className={s.id === activeId ? "active" : ""}>
-              <button className="open" onClick={() => loadSession(s.id)} title={s.title}>
+              <button className="open" onClick={() => loadSession(s.id)}
+                      onDoubleClick={() => rename(s.id, s.title)} title="double-click to rename">
                 {s.title || "chat"} <span className="dim">· {s.message_count ?? 0}</span>
               </button>
               <button className="x" onClick={() => removeSession(s.id)}>✕</button>
@@ -181,8 +248,10 @@ function ChatView() {
         {skills.length === 0 && <p className="dim">none yet</p>}
         <ul>
           {skills.map((s) => (
-            <li key={s.name} title={s.description}>
-              <b>{s.name}</b> <span className="dim">×{s.uses}</span>
+            <li key={s.name} title={`${s.description} — ${s.level ?? ""}`}>
+              <b>{s.name}</b>{" "}
+              <span className="stars">{"★".repeat(s.stars ?? 1)}{"☆".repeat(3 - (s.stars ?? 1))}</span>
+              <span className="dim"> ×{s.uses}</span>
             </li>
           ))}
         </ul>
@@ -193,12 +262,15 @@ function ChatView() {
         <div className="log">
           {log.map((line, i) => (
             <div key={i} className={`line ${line.kind}`}>
-              {line.kind === "result" ? (line.ok ? "✓ " : "✗ ") : ""}
-              {line.text}
+              {line.kind === "assistant"
+                ? <Markdown text={line.text} />
+                : <>{line.kind === "result" ? (line.ok ? "✓ " : "✗ ") : ""}{line.text}</>}
             </div>
           ))}
           <div ref={bottom} />
         </div>
+
+        {usage && <UsageBar u={usage} />}
 
         <div className="composer">
           <input
@@ -207,7 +279,9 @@ function ChatView() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
           />
-          <button onClick={send} disabled={busy}>{busy ? "…" : "Send"}</button>
+          {busy
+            ? <button className="stop" onClick={stop}>Stop</button>
+            : <button onClick={send}>Send</button>}
         </div>
       </main>
 

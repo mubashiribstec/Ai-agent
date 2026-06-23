@@ -44,6 +44,16 @@ export class XplogentSocket {
     this.ws.send(JSON.stringify({ type: "task", task, ...opts }));
   }
 
+  sendCouncil(task: string, models: string[], synthModel?: string) {
+    this.ws.send(JSON.stringify({
+      type: "task", task, models, synthesize: true, synth_model: synthModel,
+    }));
+  }
+
+  cancel() {
+    this.ws.send(JSON.stringify({ type: "cancel" }));
+  }
+
   resolveApproval(id: string, allowed: boolean) {
     this.ws.send(JSON.stringify({ type: "approval", id, allowed }));
   }
@@ -176,6 +186,35 @@ export async function getSessionMessages(id: number): Promise<{ messages: any[] 
 
 export async function deleteSession(id: number) {
   await fetch(`/sessions/${id}`, { method: "DELETE" });
+}
+
+export async function renameSession(id: number, title: string) {
+  await fetch(`/sessions/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function searchMemory(q: string): Promise<{ facts: string[]; messages: any[] }> {
+  return (await fetch(`/memory/search?q=${encodeURIComponent(q)}`)).json();
+}
+
+// ── Knowledge export / import + backup ────────────────────────────────────────
+export async function exportKnowledge(): Promise<any> {
+  return (await fetch("/export/knowledge")).json();
+}
+
+export async function importKnowledge(data: any): Promise<any> {
+  return (await fetch("/import/knowledge", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })).json();
+}
+
+export async function restoreBackup(file: ArrayBuffer): Promise<any> {
+  return (await fetch("/restore", {
+    method: "POST", headers: { "Content-Type": "application/gzip" }, body: file,
+  })).json();
 }
 
 // ── Scheduler ─────────────────────────────────────────────────────────────────

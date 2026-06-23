@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from xplogent.core.config import Config
 from xplogent.core.context import ShortTermMemory, build_system_prompt
 from xplogent.core.events import Event, EventBus, EventType
-from xplogent.core.limits import context_window
+from xplogent.core.limits import context_window, estimate_cost
 from xplogent.core.logging import get_logger
 from xplogent.core.retry import RETRYABLE, RetryPolicy, classify_error
 from xplogent.memory.manager import MemoryManager
@@ -83,6 +83,7 @@ class Agent:
         self.current_tool: str | None = None
         self.steps_taken = 0
         self.session_tokens = {"input": 0, "output": 0}  # cumulative this agent
+        self.session_cost = 0.0  # cumulative USD this agent (best-effort estimate)
         self._recalled_skills: set[str] = set()  # skills used this run (for proficiency)
 
     def load_history(self, limit: int = 40) -> None:
@@ -248,13 +249,16 @@ class Agent:
         used = sum(len(m.content) // 4 + 1 for m in self.stm.render())
         data = {"model": model_spec, "context_limit": limit, "context_used": used}
         if assistant.usage:
-            self.session_tokens["input"] += assistant.usage.get("input_tokens", 0)
-            self.session_tokens["output"] += assistant.usage.get("output_tokens", 0)
+            it = assistant.usage.get("input_tokens", 0)
+            ot = assistant.usage.get("output_tokens", 0)
+            self.session_tokens["input"] += it
+            self.session_tokens["output"] += ot
+            self.session_cost += estimate_cost(model_spec, it, ot)
             data.update({
-                "input_tokens": assistant.usage.get("input_tokens", 0),
-                "output_tokens": assistant.usage.get("output_tokens", 0),
+                "input_tokens": it, "output_tokens": ot,
                 "session_input": self.session_tokens["input"],
                 "session_output": self.session_tokens["output"],
+                "session_cost": round(self.session_cost, 4),
             })
         await self._emit(EventType.USAGE, **data)
 
