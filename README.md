@@ -14,7 +14,10 @@ to extend with plugins and MCP servers. It runs on **Windows and Linux** (and ma
 
 | Capability | Xplogent |
 |---|---|
-| **Providers** | Ollama (local/offline), OpenAI, Anthropic, OpenRouter (200+ models) — switch with one config value |
+| **Providers** | Ollama (local/offline), OpenAI, Anthropic, Gemini, OpenRouter (200+ models), and **Claude via your subscription** (no API key, through the `claude` CLi) — switch with one config value |
+| **Council chat** | Ask several models the same question at once and get each answer side-by-side **plus a synthesized final** |
+| **Token & cost** | Real token usage, a context-window gauge, and a live cost estimate in the chat |
+| **Backup** | One-click `.tar.gz` backup/restore and JSON export/import of skills + memory |
 | **Memory** | SQLite + local embeddings; short-term, long-term, and episodic recall |
 | **Self-improvement** | Reflects after tasks, consolidates memory, auto-creates & reuses skills |
 | **Multi-agent** | Run many agents at once (you set the limit); orchestrator auto-decomposes a goal, or define named agents |
