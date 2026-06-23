@@ -8,9 +8,10 @@ export default defineConfig({
     port: 5173,
     proxy: Object.fromEntries(
       [
-        "/health", "/config", "/skills", "/memory", "/tools", "/roles",
-        "/secrets", "/models", "/sessions", "/guide", "/update",
-        "/orchestrate", "/runs", "/agents", "/messages", "/run",
+        "/health", "/status", "/config", "/skills", "/memory", "/tools", "/roles",
+        "/secrets", "/models", "/sessions", "/guide", "/update", "/providers",
+        "/orchestrate", "/runs", "/agents", "/messages", "/run", "/schedules",
+        "/backup", "/restore", "/export", "/import",
       ].map((p) => [p, "http://localhost:8765"]).concat([
         ["/ws", { target: "ws://localhost:8765", ws: true } as any],
       ] as any)

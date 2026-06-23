@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   addFact, deleteFact, deleteSkill, exportKnowledge, getFacts, getFullConfig,
-  getRoles, getSkills, getTools, importKnowledge, patchConfig, putRole, putSecrets,
-  restoreBackup,
+  getRoles, getSkills, getStatus, getTools, importKnowledge, patchConfig, putRole,
+  putSecrets, restoreBackup, StatusInfo,
 } from "./api";
 import { UpdatePanel } from "./UpdatePanel";
 
@@ -39,6 +39,9 @@ export function Settings() {
     <div className="settings">
       <div className="warn-banner">⚠ Settings are stored locally in ~/.xplogent. Keep the server bound to 127.0.0.1.</div>
       {saved && <div className="toast">{saved}</div>}
+
+      <HealthCard />
+      <McpCard mcp={cfg.mcp ?? {}} onSave={save} />
 
       <div className="card">
         <h3>Model</h3>
@@ -149,6 +152,70 @@ export function Settings() {
       </div>
 
       <UpdatePanel />
+    </div>
+  );
+}
+
+function HealthCard() {
+  const [st, setSt] = useState<StatusInfo | null>(null);
+  const reload = () => getStatus().then(setSt).catch(() => setSt(null));
+  useEffect(() => { reload(); const id = setInterval(reload, 10000); return () => clearInterval(id); }, []);
+  return (
+    <div className="card">
+      <h3>Status &amp; health</h3>
+      {!st ? <p className="warn">Backend unreachable.</p> : (
+        <>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <span className="badge ok">backend online</span>
+            <span className={`badge ${st.ollama.reachable ? "ok" : "bad"}`}>
+              Ollama {st.ollama.reachable ? "reachable" : "down"}</span>
+            <span className="badge">active model: {st.model}</span>
+          </div>
+          <h4 style={{ margin: "14px 0 6px", fontSize: 13 }} className="dim">Providers</h4>
+          <div className="row wrap" style={{ gap: 8 }}>
+            {st.providers.map((p) => {
+              const keyMap: Record<string, string> = {
+                openai: "OPENAI_API_KEY", anthropic: "ANTHROPIC_API_KEY",
+                openrouter: "OPENROUTER_API_KEY", gemini: "GOOGLE_API_KEY",
+              };
+              const env = keyMap[p];
+              const ok = !env || st.secrets[env];
+              return <span key={p} className={`badge ${ok ? "ok" : "warn"}`}>{p}{env && !ok ? " · no key" : ""}</span>;
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function McpCard({ mcp, onSave }: { mcp: any; onSave: (u: Record<string, any>) => void }) {
+  const server = mcp.server ?? {};
+  const set = (k: string, v: any) => onSave({ mcp: { server: { [k]: v } } });
+  const clientSnippet = JSON.stringify({
+    mcpServers: { xplogent: { command: "xplogent-mcp", args: [] } },
+  }, null, 2);
+  return (
+    <div className="card">
+      <h3>MCP server</h3>
+      <p className="dim">Expose Xplogent's tools/agents to MCP clients (Claude Desktop, Cursor, …).
+        Launch it with <code>xplogent mcp</code>.</p>
+      <div className="grid2">
+        <label className="field-l">Transport
+          <select defaultValue={server.transport ?? "stdio"} onChange={(e) => set("transport", e.target.value)}>
+            {["stdio", "streamable-http", "sse"].map((t) => <option key={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="field-l">Role profile
+          <input defaultValue={server.agent_role ?? "operator"} onBlur={(e) => set("agent_role", e.target.value)} />
+        </label>
+      </div>
+      <label className="check"><input type="checkbox" defaultChecked={server.auto_approve ?? false}
+        onChange={(e) => set("auto_approve", e.target.checked)} /> auto-approve confirm-tier actions</label>
+      <label className="check"><input type="checkbox" defaultChecked={server.expose_raw_tools ?? true}
+        onChange={(e) => set("expose_raw_tools", e.target.checked)} /> expose raw PC tools</label>
+      <h4 style={{ margin: "14px 0 6px", fontSize: 13 }} className="dim">Claude Desktop config</h4>
+      <pre className="snippet">{clientSnippet}</pre>
     </div>
   );
 }

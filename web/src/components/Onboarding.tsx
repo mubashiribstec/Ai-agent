@@ -1,0 +1,92 @@
+import { useState } from "react";
+import { Check, Cpu, KeyRound, Sparkles } from "lucide-react";
+import { ollamaPull, patchConfig, putSecrets } from "../api";
+import { useToast } from "./Toast";
+
+const PROVIDERS = [
+  { id: "claude-cli", label: "Claude (subscription)", note: "No API key — uses the local `claude` CLI", model: "claude-cli:sonnet", keyEnv: "" },
+  { id: "ollama", label: "Ollama (local)", note: "Runs offline on your machine", model: "ollama:llama3.1", keyEnv: "" },
+  { id: "openai", label: "OpenAI", note: "GPT-4o and o-series", model: "openai:gpt-4o", keyEnv: "OPENAI_API_KEY" },
+  { id: "anthropic", label: "Anthropic", note: "Claude via API key", model: "anthropic:claude-sonnet-4-6", keyEnv: "ANTHROPIC_API_KEY" },
+  { id: "gemini", label: "Google Gemini", note: "Gemini 1.5/2.x", model: "gemini:gemini-1.5-pro", keyEnv: "GOOGLE_API_KEY" },
+  { id: "openrouter", label: "OpenRouter", note: "200+ models, one key", model: "openrouter:meta-llama/llama-3.1-70b-instruct", keyEnv: "OPENROUTER_API_KEY" },
+];
+
+export function Onboarding({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [step, setStep] = useState(0);
+  const [provider, setProvider] = useState(PROVIDERS[0]);
+  const [model, setModel] = useState(PROVIDERS[0].model);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const pick = (p: typeof PROVIDERS[number]) => { setProvider(p); setModel(p.model); };
+
+  const finish = async () => {
+    setBusy(true);
+    try {
+      if (provider.keyEnv && key.trim()) await putSecrets({ [provider.keyEnv]: key.trim() });
+      await patchConfig({ model });
+      if (provider.id === "ollama") {
+        toast("Pulling the model in the background…", "info");
+        ollamaPull(model.split(":")[1]).catch(() => {});
+      }
+      localStorage.setItem("xplogent_onboarded", "1");
+      toast("You're all set!", "success");
+      onDone();
+    } catch {
+      toast("Could not save settings", "error");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="overlay center">
+      <div className="modal onboard">
+        <div className="modal-body">
+          <div className="steps">
+            {[0, 1].map((i) => <div key={i} className={`step-dot ${i <= step ? "on" : ""}`} />)}
+          </div>
+          {step === 0 ? (
+            <>
+              <h3><Sparkles size={18} /> Welcome to Xplogent</h3>
+              <p className="dim">Pick how you want to power the agent. You can change this any time in Settings.</p>
+              <div className="provider-grid" style={{ marginTop: 16 }}>
+                {PROVIDERS.map((p) => (
+                  <div key={p.id} className={`opt ${provider.id === p.id ? "sel" : ""}`} onClick={() => pick(p)}>
+                    <b>{p.label}</b>
+                    <div className="dim" style={{ fontSize: 12, marginTop: 4 }}>{p.note}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <h3><Cpu size={18} /> {provider.label}</h3>
+              <label className="field-l">Model
+                <input value={model} onChange={(e) => setModel(e.target.value)} />
+              </label>
+              {provider.keyEnv ? (
+                <label className="field-l"><span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <KeyRound size={14} /> {provider.keyEnv}</span>
+                  <input type="password" placeholder="paste your API key" value={key}
+                    onChange={(e) => setKey(e.target.value)} />
+                </label>
+              ) : provider.id === "claude-cli" ? (
+                <p className="dim">Make sure Claude Code is installed and you've run <code>claude login</code>. No API key needed.</p>
+              ) : (
+                <p className="dim">Make sure Ollama is running. We'll pull <code>{model.split(":")[1]}</code> for you.</p>
+              )}
+            </>
+          )}
+        </div>
+        <div className="modal-actions">
+          <button className="btn ghost" onClick={() => { localStorage.setItem("xplogent_onboarded", "1"); onDone(); }}>Skip</button>
+          {step === 0
+            ? <button className="btn primary" onClick={() => setStep(1)}>Continue</button>
+            : <button className="btn primary" onClick={finish} disabled={busy}>
+                {busy ? "Saving…" : <><Check size={16} /> Finish</>}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}

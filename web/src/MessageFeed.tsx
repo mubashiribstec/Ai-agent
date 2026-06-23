@@ -10,7 +10,7 @@ export function MessageFeed({ messages }: { messages: AgentMsg[] }) {
       <h4>Agent chatter</h4>
       {messages.length === 0 && <p className="dim">no messages yet</p>}
       {messages.map((m, i) => (
-        <div key={i} className="msg">
+        <div key={i} className="m">
           <b>{m.sender}</b>
           <span className="arrow"> → {m.recipient ?? "all"}</span>: {m.content}
         </div>

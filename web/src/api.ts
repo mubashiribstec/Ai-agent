@@ -30,37 +30,53 @@ export interface TaskOptions {
   temperature?: number;
 }
 
-export class XplogentSocket {
-  private ws: WebSocket;
+export type ConnStatus = "connecting" | "online" | "offline";
 
-  constructor(onEvent: (ev: XplogentEvent) => void, sessionId?: number | null) {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const qs = sessionId ? `?session_id=${sessionId}` : "";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws${qs}`);
-    this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
+export class XplogentSocket {
+  private ws!: WebSocket;
+  private closed = false;
+  private retries = 0;
+
+  constructor(
+    private onEvent: (ev: XplogentEvent) => void,
+    private sessionId?: number | null,
+    private onStatus?: (s: ConnStatus) => void,
+  ) {
+    this.connect();
   }
 
-  sendTask(task: string, opts: TaskOptions = {}) {
-    this.ws.send(JSON.stringify({ type: "task", task, ...opts }));
+  private connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const qs = this.sessionId ? `?session_id=${this.sessionId}` : "";
+    this.onStatus?.("connecting");
+    this.ws = new WebSocket(`${proto}://${location.host}/ws${qs}`);
+    this.ws.onopen = () => { this.retries = 0; this.onStatus?.("online"); };
+    this.ws.onmessage = (m) => this.onEvent(JSON.parse(m.data) as XplogentEvent);
+    this.ws.onclose = () => {
+      if (this.closed) return;
+      this.onStatus?.("offline");
+      const delay = Math.min(1000 * 2 ** this.retries++, 10000);
+      setTimeout(() => this.connect(), delay);
+    };
+    this.ws.onerror = () => this.ws.close();
+  }
+
+  private send(obj: unknown) {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
+  }
+
+  sendTask(task: string, opts: TaskOptions & { images?: string[] } = {}) {
+    this.send({ type: "task", task, ...opts });
   }
 
   sendCouncil(task: string, models: string[], synthModel?: string) {
-    this.ws.send(JSON.stringify({
-      type: "task", task, models, synthesize: true, synth_model: synthModel,
-    }));
+    this.send({ type: "task", task, models, synthesize: true, synth_model: synthModel });
   }
 
-  cancel() {
-    this.ws.send(JSON.stringify({ type: "cancel" }));
-  }
+  cancel() { this.send({ type: "cancel" }); }
+  resolveApproval(id: string, allowed: boolean) { this.send({ type: "approval", id, allowed }); }
 
-  resolveApproval(id: string, allowed: boolean) {
-    this.ws.send(JSON.stringify({ type: "approval", id, allowed }));
-  }
-
-  close() {
-    this.ws.close();
-  }
+  close() { this.closed = true; this.ws.close(); }
 }
 
 // ── Multi-agent orchestration + monitoring ────────────────────────────────────
@@ -157,6 +173,48 @@ export async function health(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ── Status / health aggregate ─────────────────────────────────────────────────
+export interface StatusInfo {
+  status: string;
+  model: string;
+  providers: string[];
+  secrets: Record<string, boolean>;
+  ollama: { host: string; reachable: boolean };
+}
+
+export async function getStatus(): Promise<StatusInfo> {
+  return (await fetch("/status")).json();
+}
+
+export async function ollamaPull(model: string): Promise<{ ok: boolean; output?: string; error?: string }> {
+  return (await fetch("/providers/ollama/pull", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  })).json();
+}
+
+// ── Runs & observability ──────────────────────────────────────────────────────
+export interface RunInfo {
+  id: string; goal: string; mode: string; status: string;
+  started_at: number; ended_at: number | null;
+}
+
+export async function getRuns(): Promise<{ runs: RunInfo[]; active: string[] }> {
+  return (await fetch("/runs")).json();
+}
+
+export async function getRun(id: string): Promise<{ run: RunInfo | null; metrics: any[] }> {
+  return (await fetch(`/runs/${id}`)).json();
+}
+
+export async function getRunEvents(id: string): Promise<{ events: any[] }> {
+  return (await fetch(`/runs/${id}/events`)).json();
+}
+
+export async function getRunMessages(runId: string): Promise<{ messages: any[] }> {
+  return (await fetch(`/messages?run_id=${runId}`)).json();
 }
 
 // ── Models & sessions ─────────────────────────────────────────────────────────
