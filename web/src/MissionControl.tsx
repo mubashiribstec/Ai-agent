@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { LayoutGrid, Rocket } from "lucide-react";
 import { MonitorSocket, XplogentEvent, orchestrate } from "./api";
 import { AgentCard, AgentState } from "./AgentCard";
 import { TaskBoard, TaskState } from "./TaskBoard";
@@ -77,6 +78,9 @@ export function MissionControl() {
 
   return (
     <div className="mission">
+      <div className="page-head" style={{ padding: "16px 24px 0" }}>
+        <h1 style={{ fontSize: 20 }}><LayoutGrid size={20} /> Mission Control</h1>
+      </div>
       <div className="mission-bar">
         <input
           value={goal}
@@ -93,7 +97,8 @@ export function MissionControl() {
           <input type="checkbox" checked={autoApprove}
                  onChange={(e) => setAutoApprove(e.target.checked)} /> auto-approve
         </label>
-        <button onClick={launch} disabled={running && !!runId}>Launch team</button>
+        <button className="btn primary" onClick={launch} disabled={running && !!runId}>
+          <Rocket size={16} /> Launch team</button>
       </div>
 
       <div className="mission-grid">

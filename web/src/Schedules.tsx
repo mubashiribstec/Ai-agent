@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { Calendar, Pause, Play, Trash2 } from "lucide-react";
 import {
   Schedule, addSchedule, deleteSchedule, getSchedules, toggleSchedule,
 } from "./api";
+import { useToast } from "./components/Toast";
 
 const fmt = (t: number | null) =>
   t ? new Date(t * 1000).toLocaleString() : "—";
@@ -12,6 +14,7 @@ export function Schedules() {
   const [when, setWhen] = useState("");
   const [mode, setMode] = useState("agent");
   const [error, setError] = useState("");
+  const toast = useToast();
 
   const refresh = () => getSchedules().then((r) => setItems(r.schedules)).catch(() => {});
   useEffect(() => { refresh(); }, []);
@@ -22,7 +25,7 @@ export function Schedules() {
     const res = await addSchedule({ prompt, schedule: when, mode });
     if (res.ok) {
       setPrompt(""); setWhen("");
-      refresh();
+      refresh(); toast("scheduled", "success");
     } else {
       setError(res.detail || "could not schedule that");
     }
@@ -30,6 +33,7 @@ export function Schedules() {
 
   return (
     <div className="settings">
+      <div className="page-head"><h1><Calendar size={22} /> Schedules</h1></div>
       <div className="card">
         <h3>New scheduled job</h3>
         <p className="dim">
@@ -58,7 +62,7 @@ export function Schedules() {
           <code> 0 9 * * 1</code> (cron)
         </p>
         {error && <p className="warn">{error}</p>}
-        <button className="primary" onClick={add}>Schedule it</button>
+        <button className="btn primary" onClick={add}>Schedule it</button>
       </div>
 
       <div className="card">
@@ -75,9 +79,10 @@ export function Schedules() {
                 </span>
               </span>
               <button onClick={() => toggleSchedule(s.id).then(refresh)}>
-                {s.enabled ? "pause" : "resume"}
+                {s.enabled ? <Pause size={13} /> : <Play size={13} />}{s.enabled ? "pause" : "resume"}
               </button>
-              <button className="x" onClick={() => deleteSchedule(s.id).then(refresh)}>✕</button>
+              <button className="x" aria-label="delete"
+                onClick={() => deleteSchedule(s.id).then(refresh)}><Trash2 size={14} /></button>
             </li>
           ))}
         </ul>

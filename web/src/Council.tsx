@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Sparkles, Users } from "lucide-react";
 import { ModelPreset, XplogentEvent, XplogentSocket, getModels } from "./api";
 import { Markdown } from "./Markdown";
 
@@ -49,6 +50,10 @@ export function Council() {
 
   return (
     <div className="council">
+      <div className="page-head" style={{ padding: "16px 24px 0" }}>
+        <h1 style={{ fontSize: 20 }}><Users size={20} /> Council</h1>
+        <span className="dim" style={{ fontSize: 13 }}>ask several models at once, get a synthesized answer</span>
+      </div>
       <div className="council-bar">
         <input value={task} placeholder="Ask every selected model the same question…"
                onChange={(e) => setTask(e.target.value)}
@@ -56,8 +61,8 @@ export function Council() {
         <select value={synth} onChange={(e) => setSynth(e.target.value)} title="synthesis model">
           {models.map((m) => <option key={m.model} value={m.model}>synth: {m.label}</option>)}
         </select>
-        <button onClick={run} disabled={running || selected.length < 2}>
-          {running ? "asking…" : "Ask the council"}
+        <button className="btn primary" onClick={run} disabled={running || selected.length < 2}>
+          <Sparkles size={16} />{running ? "asking…" : "Ask the council"}
         </button>
       </div>
       <div className="council-models">
