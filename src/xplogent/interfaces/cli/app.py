@@ -271,6 +271,13 @@ def update() -> None:
         console.print(f"[green]Already up to date[/] ({check['current']}).")
         return
     console.print(f"[cyan]{check['behind_by']} new commit(s):[/]\n{check['changelog']}")
+    # Safety net: snapshot data before changing code (same as the GUI update).
+    try:
+        from xplogent.core.backup import create_backup
+        bak = create_backup()
+        console.print(f"[dim]backed up to {bak['path']}[/]")
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[yellow]backup skipped: {exc}[/]")
     pulled = updater.pull()
     console.print(pulled["output"])
     if pulled["ok"]:
