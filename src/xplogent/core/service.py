@@ -44,6 +44,25 @@ def _read_state() -> dict:
     return {}
 
 
+def _workdir() -> Path:
+    """A stable working directory for the background server (repo root or home)."""
+    from xplogent.core.updater import repo_root
+
+    return repo_root() or xplogent_home()
+
+
+def _can_launch() -> tuple[bool, str]:
+    """Verify ``python -m xplogent`` is importable before spawning a detached child."""
+    try:
+        proc = subprocess.run([sys.executable, "-c", "import xplogent"],
+                              capture_output=True, text=True, timeout=20)
+    except (subprocess.SubprocessError, OSError) as exc:
+        return False, str(exc)
+    if proc.returncode != 0:
+        return False, (proc.stderr or "could not import xplogent with this Python").strip()
+    return True, ""
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -59,22 +78,32 @@ def _pid_alive(pid: int) -> bool:
 
 
 def start(port: int = 8765, host: str = "127.0.0.1") -> dict:
-    """Launch `xplogent up` detached. Returns status."""
+    """Launch `xplogent up` detached so it survives closing the terminal."""
     state = _read_state()
     if state.get("pid") and _pid_alive(state["pid"]):
         return {"ok": True, "already_running": True, **state}
 
-    logf = open(_log_path(), "a")  # noqa: SIM115 - handed to the child process
+    ok, err = _can_launch()
+    if not ok:
+        return {"ok": False, "error": f"cannot launch xplogent with {sys.executable}: {err}"}
+
     cmd = [sys.executable, "-m", "xplogent", "up",
            "--port", str(port), "--host", host, "--no-browser"]
-    kwargs: dict = {"stdout": logf, "stderr": logf, "stdin": subprocess.DEVNULL}
+    # Explicit cwd + full env so config/.env resolve the same as an interactive run.
+    kwargs: dict = {"stdin": subprocess.DEVNULL, "cwd": str(_workdir()),
+                    "env": os.environ.copy()}
     if is_windows():
-        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — fully detach from the console.
         kwargs["creationflags"] = 0x00000008 | 0x00000200
     else:
         kwargs["start_new_session"] = True
 
-    proc = subprocess.Popen(cmd, **kwargs)
+    # Own the logfile handle in a with-block; the child keeps its own copy.
+    with open(_log_path(), "a") as logf:  # noqa: SIM115
+        kwargs["stdout"] = logf
+        kwargs["stderr"] = logf
+        proc = subprocess.Popen(cmd, **kwargs)
+
     state = {"pid": proc.pid, "port": port, "host": host, "started_at": time.time()}
     _state_path().write_text(json.dumps(state))
     return {"ok": True, "started": True, **state}
@@ -121,25 +150,41 @@ def restart(port: int = 8765, host: str = "127.0.0.1") -> dict:
 def install_service(port: int = 8765) -> dict:
     """Generate (and best-effort register) an OS service for auto-start."""
     exe = sys.executable
+    home = xplogent_home()
+    workdir = _workdir()
     if is_windows():
         task = "XplogentServer"
-        cmd = f'"{exe}" -m xplogent up --port {port} --no-browser'
+        # Point the task at a .bat so we avoid schtasks /TR quoting pitfalls and can
+        # set the working directory reliably.
+        bat = home / "xplogent-start.bat"
+        bat.write_text(
+            "@echo off\r\n"
+            f'cd /d "{workdir}"\r\n'
+            f'"{exe}" -m xplogent up --port {port} --no-browser\r\n',
+            encoding="utf-8",
+        )
         register = ["schtasks", "/Create", "/TN", task, "/SC", "ONLOGON",
-                    "/TR", cmd, "/F"]
+                    "/TR", str(bat), "/F"]
         try:
             subprocess.run(register, capture_output=True, text=True, check=True)
-            return {"ok": True, "kind": "scheduled-task", "name": task}
+            # Verify it registered.
+            subprocess.run(["schtasks", "/Query", "/TN", task],
+                           capture_output=True, text=True, check=True)
+            return {"ok": True, "kind": "scheduled-task", "name": task, "script": str(bat)}
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
             return {"ok": False, "kind": "scheduled-task",
-                    "hint": "run this in an elevated shell:", "command": " ".join(register),
+                    "hint": "run this in an elevated PowerShell:", "command": " ".join(register),
                     "error": str(exc)}
     # Linux: systemd user unit
     unit_dir = Path.home() / ".config" / "systemd" / "user"
     unit_dir.mkdir(parents=True, exist_ok=True)
     unit = unit_dir / "xplogent.service"
+    env_file = home / ".env"
     unit.write_text(
         "[Unit]\nDescription=Xplogent agent server\nAfter=network.target\n\n"
         "[Service]\n"
+        f"WorkingDirectory={workdir}\n"
+        f"EnvironmentFile=-{env_file}\n"
         f"ExecStart={exe} -m xplogent up --port {port} --no-browser\n"
         "Restart=on-failure\n\n"
         "[Install]\nWantedBy=default.target\n"

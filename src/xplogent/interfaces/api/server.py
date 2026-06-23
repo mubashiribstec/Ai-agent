@@ -33,11 +33,28 @@ from xplogent.tools.registry import _BUILTIN_GROUPS
 
 
 def create_app():
+    from contextlib import asynccontextmanager
+
     from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
-    app = FastAPI(title="Xplogent Agent API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: "FastAPI"):
+        cfg = load_config()
+        sched = None
+        if cfg.scheduler.get("enabled", True):
+            from xplogent.core.scheduler import Scheduler
+            sched = Scheduler(cfg, tick=float(cfg.scheduler.get("tick_seconds", 30)))
+            await sched.start()
+            app.state.scheduler = sched
+        try:
+            yield
+        finally:
+            if sched is not None:
+                await sched.stop()
+
+    app = FastAPI(title="Xplogent Agent API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -568,24 +585,6 @@ def create_app():
         store.close()
         return {"ok": True}
 
-    # Start the scheduler loop alongside the server (if enabled).
-    @app.on_event("startup")
-    async def _start_scheduler() -> None:
-        cfg = load_config()
-        if not cfg.scheduler.get("enabled", True):
-            return
-        from xplogent.core.scheduler import Scheduler
-
-        sched = Scheduler(cfg, tick=float(cfg.scheduler.get("tick_seconds", 30)))
-        await sched.start()
-        app.state.scheduler = sched
-
-    @app.on_event("shutdown")
-    async def _stop_scheduler() -> None:
-        sched = getattr(app.state, "scheduler", None)
-        if sched is not None:
-            await sched.stop()
-
     # ── Backup / restore + knowledge export/import ───────────────────────────
     @app.get("/backup")
     async def backup_download(include_secrets: bool = False):
@@ -635,14 +634,20 @@ def create_app():
 
     @app.post("/update")
     async def update_apply() -> dict:
+        # Safety net: snapshot data before changing code.
+        try:
+            from xplogent.core.backup import create_backup
+            backed_up = (await asyncio.to_thread(create_backup)).get("path")
+        except Exception:  # noqa: BLE001
+            backed_up = None
         pulled = await asyncio.to_thread(updater.pull)
         if not pulled["ok"]:
-            return {"ok": False, "stage": "pull", "output": pulled["output"]}
+            return {"ok": False, "stage": "pull", "output": pulled["output"], "backup": backed_up}
         installed = await asyncio.to_thread(updater.reinstall)
         web = await asyncio.to_thread(updater.rebuild_web)  # so GUI changes deploy
         # Re-exec shortly after this response flushes so new code loads.
         asyncio.get_event_loop().call_later(0.5, lambda: updater.restart(_serve_args))
-        return {"ok": True, "restarting": True, "pull": pulled["output"],
+        return {"ok": True, "restarting": True, "backup": backed_up, "pull": pulled["output"],
                 "install": installed["output"], "web": web.get("output") or web.get("skipped")}
 
     # ── In-app guide ─────────────────────────────────────────────────────────

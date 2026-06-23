@@ -112,7 +112,43 @@ def rebuild_web() -> dict:
 
 
 def restart(extra_args: list[str] | None = None) -> None:
-    """Re-exec the current Python process (so new code loads). Does not return."""
+    """Restart the process so new code loads. Does not return on success.
+
+    POSIX re-execs in place; on Windows ``os.execv`` loses the console/service
+    context, so we spawn a fresh detached process and exit this one.
+    """
     args = [sys.executable, "-m", "xplogent", *(extra_args or ["up"])]
+    if not Path(sys.executable).exists():
+        _log.error("cannot restart: python executable missing at %s", sys.executable)
+        return
     _log.info("restarting: %s", " ".join(args))
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(args, creationflags=0x00000008 | 0x00000200)
+        os._exit(0)
     os.execv(sys.executable, args)
+
+
+def update_and_restart(extra_args: list[str] | None = None) -> dict:
+    """Backup → pull → reinstall → rebuild dashboard → restart. Returns a report.
+
+    On success the process restarts and this never returns; on any earlier failure
+    it returns a dict describing the stage that failed (no restart).
+    """
+    report: dict = {}
+    try:
+        from xplogent.core.backup import create_backup
+
+        report["backup"] = create_backup().get("path")
+    except Exception as exc:  # noqa: BLE001 - backup failure shouldn't block, just note it
+        report["backup_error"] = str(exc)
+
+    pulled = pull()
+    report["pull"] = pulled["output"]
+    if not pulled["ok"]:
+        return {"ok": False, "stage": "pull", **report}
+    report["install"] = reinstall()["output"]
+    web = rebuild_web()
+    report["web"] = web.get("output") or web.get("skipped")
+    restart(extra_args)  # does not return on success
+    return {"ok": True, "restarting": True, **report}

@@ -19,6 +19,7 @@ def home(tmp_path, monkeypatch):
 
 
 def test_start_writes_state(home, monkeypatch):
+    monkeypatch.setattr(service, "_can_launch", lambda: (True, ""))
     monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: _FakeProc(4242))
     res = service.start(port=9999)
     assert res["ok"] and res["pid"] == 4242
@@ -26,6 +27,7 @@ def test_start_writes_state(home, monkeypatch):
 
 
 def test_status_running_and_unhealthy(home, monkeypatch):
+    monkeypatch.setattr(service, "_can_launch", lambda: (True, ""))
     monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: _FakeProc(4242))
     service.start(port=9999)
     monkeypatch.setattr(service, "_pid_alive", lambda pid: True)
@@ -39,6 +41,7 @@ def test_status_running_and_unhealthy(home, monkeypatch):
 
 
 def test_stop_clears_state(home, monkeypatch):
+    monkeypatch.setattr(service, "_can_launch", lambda: (True, ""))
     monkeypatch.setattr(service.subprocess, "Popen", lambda *a, **k: _FakeProc(4242))
     service.start()
     monkeypatch.setattr(service, "_pid_alive", lambda pid: True)
