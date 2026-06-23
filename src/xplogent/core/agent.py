@@ -142,11 +142,15 @@ class Agent:
         system = build_system_prompt(self.config.agent.get("system_prompt"), facts, skills)
         return [Message(role=Role.SYSTEM, content=system), *self.stm.render()]
 
-    async def run(self, task: str) -> str:
-        """Run one task to completion and return the final answer."""
+    async def run(self, task: str, images: list[str] | None = None) -> str:
+        """Run one task to completion and return the final answer.
+
+        ``images`` are file paths / data-URIs attached to the first user message so a
+        vision-capable model can see them (ignored by text-only models).
+        """
         await self._emit(EventType.RUN_START, task=task)
         await self._set_status("running")
-        self.stm.add(Message(role=Role.USER, content=task))
+        self.stm.add(Message(role=Role.USER, content=task, images=images or []))
         if self.memory:
             self.memory.log("user", task)
         transcript: list[str] = [f"USER: {task}"]

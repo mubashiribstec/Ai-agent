@@ -110,6 +110,48 @@ def create_app():
         cfg = load_config()
         return {"status": "ok", "model": cfg.model, "providers": available_providers()}
 
+    @app.get("/status")
+    async def status() -> dict:
+        """Aggregate health for the dashboard: providers, which keys are set, Ollama up."""
+        import os
+
+        import httpx
+        cfg = load_config()
+        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+        ollama_up = False
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                ollama_up = (await client.get(f"{ollama_host}/api/tags")).status_code == 200
+        except httpx.HTTPError:
+            ollama_up = False
+        return {
+            "status": "ok",
+            "model": cfg.model,
+            "providers": available_providers(),
+            "secrets": secret_status(),
+            "ollama": {"host": ollama_host, "reachable": ollama_up},
+        }
+
+    @app.post("/providers/ollama/pull")
+    async def ollama_pull(body: dict) -> dict:
+        """Pull a local Ollama model (used by onboarding). Best-effort, blocking."""
+        import shutil
+        import subprocess
+
+        model = str(body.get("model", "")).strip()
+        if not model:
+            return {"ok": False, "error": "no model given"}
+        if shutil.which("ollama") is None:
+            return {"ok": False, "error": "the 'ollama' CLI isn't installed"}
+
+        def _pull() -> tuple[int, str]:
+            proc = subprocess.run(["ollama", "pull", model],
+                                  capture_output=True, text=True, timeout=1800)
+            return proc.returncode, (proc.stdout + proc.stderr)[-2000:]
+
+        rc, out = await asyncio.to_thread(_pull)
+        return {"ok": rc == 0, "output": out}
+
     @app.get("/config")
     async def config() -> dict:
         cfg = load_config()
@@ -252,7 +294,8 @@ def create_app():
             gen_params = {k: msg[k] for k in ("effort", "thinking", "max_tokens", "temperature")
                           if msg.get(k) is not None}
             runtime = await get_runtime(msg.get("model"), gen_params)
-            await runtime.agent.run(msg.get("task", ""))
+            images = msg.get("images") or None
+            await runtime.agent.run(msg.get("task", ""), images=images)
             await websocket.send_json({"type": "done"})
 
         async def handle_council(msg: dict) -> None:
