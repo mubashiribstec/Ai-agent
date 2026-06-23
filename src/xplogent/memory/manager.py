@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from xplogent.memory.store import SkillRow, Store
-from xplogent.memory.vector import Embedder, top_k
+from xplogent.memory.vector import Embedder, cosine, top_k
 
 
 @dataclass
@@ -28,6 +28,8 @@ class MemoryManager:
         self.store = store
         self.embedder = embedder
         self.session_id = session_id
+        prov = getattr(embedder, "provider", None)
+        self.embed_model = f"{getattr(prov, 'name', '')}:{getattr(prov, 'model', '')}" if prov else ""
 
     # -- episodic logging ------------------------------------------------------
     def log(self, role: str, content: str) -> None:
@@ -41,7 +43,19 @@ class MemoryManager:
     # -- long-term facts -------------------------------------------------------
     async def remember(self, content: str, source: str = "") -> int:
         vec = await self.embedder.embed_one(content)
-        return self.store.add_fact(content, vec, source)
+        # Skip near-duplicate facts to curb memory bloat.
+        if vec:
+            for f in self.store.all_facts():
+                if f.embedding and cosine(vec, f.embedding) > 0.95:
+                    return f.id
+        return self.store.add_fact(content, vec, source, embed_model=self.embed_model)
+
+    def record_skill_outcome(self, name: str, success: bool) -> None:
+        self.store.record_skill_outcome(name, success)
+
+    def _embed_match(self, em: str) -> bool:
+        """A stored vector is comparable only if it came from the same embed model."""
+        return not em or not self.embed_model or em == self.embed_model
 
     async def recall(self, query: str, k: int = 5) -> list[str]:
         facts = self.store.all_facts()
@@ -49,7 +63,9 @@ class MemoryManager:
             return []
         qvec = await self.embedder.embed_one(query)
         if qvec:
-            ranked = top_k(qvec, [(f, f.embedding) for f in facts], k)
+            usable = [(f, f.embedding) for f in facts
+                      if f.embedding and self._embed_match(f.embed_model)]
+            ranked = top_k(qvec, usable, k)
             return [f.content for f, score in ranked if score > 0.2]  # type: ignore[attr-defined]
         # keyword fallback
         q = query.lower()
@@ -62,7 +78,7 @@ class MemoryManager:
     # -- skills ----------------------------------------------------------------
     async def save_skill(self, name: str, description: str, body: str) -> None:
         vec = await self.embedder.embed_one(f"{name}: {description}")
-        self.store.upsert_skill(name, description, body, vec)
+        self.store.upsert_skill(name, description, body, vec, embed_model=self.embed_model)
 
     async def relevant_skills(self, query: str, k: int = 3) -> list[RetrievedSkill]:
         skills: list[SkillRow] = self.store.all_skills()
@@ -70,8 +86,12 @@ class MemoryManager:
             return []
         qvec = await self.embedder.embed_one(query)
         if qvec:
-            ranked = top_k(qvec, [(s, s.embedding) for s in skills], k)
-            picked = [(s, score) for s, score in ranked if score > 0.25]
+            usable = [(s, s.embedding) for s in skills
+                      if s.embedding and self._embed_match(s.embed_model)]
+            ranked = top_k(qvec, usable, k + 2)
+            # Nudge proficient/expert skills up so battle-tested ones win ties.
+            ranked.sort(key=lambda t: t[1] + 0.03 * t[0].stars, reverse=True)  # type: ignore[attr-defined]
+            picked = [(s, score) for s, score in ranked[:k] if score > 0.25]
         else:
             q = query.lower()
             picked = [(s, 1.0) for s in skills if q in (s.name + s.description).lower()][:k]

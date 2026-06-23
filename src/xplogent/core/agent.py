@@ -83,6 +83,7 @@ class Agent:
         self.current_tool: str | None = None
         self.steps_taken = 0
         self.session_tokens = {"input": 0, "output": 0}  # cumulative this agent
+        self._recalled_skills: set[str] = set()  # skills used this run (for proficiency)
 
     def load_history(self, limit: int = 40) -> None:
         """Seed short-term memory from the persisted session so chat continues."""
@@ -134,6 +135,7 @@ class Agent:
             facts = await self.memory.recall(task, k=int(self.config.memory.get("retrieval_top_k", 5)))
             relevant = await self.memory.relevant_skills(task, k=3)
             skills = [(s.name, s.description, s.body) for s in relevant]
+            self._recalled_skills.update(s.name for s in relevant)
             if facts or skills:
                 await self._emit(EventType.MEMORY, facts=len(facts), skills=len(skills))
         system = build_system_prompt(self.config.agent.get("system_prompt"), facts, skills)
@@ -195,10 +197,20 @@ class Agent:
 
         if self.memory:
             self.memory.log("assistant", final_answer)
+            self._record_skill_outcomes(final_answer)
         await self._set_status("done")
         await self._emit(EventType.RUN_END, answer=final_answer)
         await self._post_task(task, "\n".join(transcript), tool_steps)
         return final_answer
+
+    def _record_skill_outcomes(self, final_answer: str) -> None:
+        """Credit/penalize the skills recalled this run by how it ended."""
+        if not (self.memory and self._recalled_skills):
+            return
+        ok = not final_answer.startswith(("(failed", "(cancelled", "(stopped"))
+        for name in self._recalled_skills:
+            self.memory.record_skill_outcome(name, ok)
+        self._recalled_skills.clear()
 
     async def _stream_assistant(self, messages, tool_specs) -> Message | None:
         """Stream one assistant turn, retrying transient provider failures.

@@ -284,6 +284,25 @@ def update() -> None:
 
 
 @app.command()
+def backup(out: str = typer.Option("", help="Output .tar.gz path (default: ~/.xplogent/backups)."),
+           include_secrets: bool = typer.Option(False, help="Also back up API keys (.env).")) -> None:
+    """Back up the database, skills, and config to a .tar.gz."""
+    from xplogent.core.backup import create_backup
+
+    res = create_backup(out or None, include_secrets=include_secrets)
+    console.print(f"[green]backup written[/] {res['path']} ({res['size']} bytes)")
+
+
+@app.command()
+def restore(path: str) -> None:
+    """Restore from a backup .tar.gz (overwrites current data)."""
+    from xplogent.core.backup import restore_backup
+
+    res = restore_backup(path)
+    console.print(res if res["ok"] else f"[red]{res.get('error')}[/]")
+
+
+@app.command()
 def mcp(
     transport: str = typer.Option("stdio", help="stdio | streamable-http | sse"),
     host: str = "127.0.0.1",
@@ -413,9 +432,43 @@ def team(agent: list[str] = typer.Option(None, "--agent", "-a",
 memory_app = typer.Typer(help="Inspect memory.")
 skills_app = typer.Typer(help="Inspect learned skills.")
 schedule_app = typer.Typer(help="Schedule recurring / timed agent jobs.")
+knowledge_app = typer.Typer(help="Export/import learned facts + skills (JSON).")
 app.add_typer(memory_app, name="memory")
 app.add_typer(skills_app, name="skills")
 app.add_typer(schedule_app, name="schedule")
+app.add_typer(knowledge_app, name="knowledge")
+
+
+@knowledge_app.command("export")
+def knowledge_export(out: str) -> None:
+    """Export facts + skills (with embeddings) to a JSON file."""
+    import json
+
+    from xplogent.core.backup import export_knowledge
+
+    store = Store(load_config().db_path)
+    data = export_knowledge(store)
+    store.close()
+    from pathlib import Path
+    Path(out).write_text(json.dumps(data, indent=2), encoding="utf-8")
+    console.print(f"[green]exported[/] {len(data['facts'])} facts, "
+                  f"{len(data['skills'])} skills → {out}")
+
+
+@knowledge_app.command("import")
+def knowledge_import(path: str) -> None:
+    """Import facts + skills from a JSON export (merges; skips duplicates)."""
+    import json
+    from pathlib import Path
+
+    from xplogent.core.backup import import_knowledge
+
+    store = Store(load_config().db_path)
+    res = import_knowledge(store, json.loads(Path(path).read_text(encoding="utf-8")))
+    store.close()
+    console.print(f"[green]imported[/] +{res['facts_added']} facts, +{res['skills_added']} skills")
+    for w in res.get("warnings", []):
+        console.print(f"[yellow]⚠ {w}[/]")
 
 
 @schedule_app.command("add")
@@ -527,7 +580,9 @@ def _print_skills(store: Store | None) -> None:
         console.print("[dim]no skills learned yet[/]")
         return
     for s in skills:
-        console.print(f"[magenta]{s.name}[/] (used {s.uses}×) — {s.description}")
+        stars = "★" * s.stars + "☆" * (3 - s.stars)
+        console.print(f"[magenta]{s.name}[/] [yellow]{stars}[/] [dim]{s.level}[/] "
+                      f"(used {s.uses}×) — {s.description}")
 
 
 def _set_model(spec: str) -> None:

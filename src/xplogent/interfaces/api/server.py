@@ -33,7 +33,7 @@ from xplogent.tools.registry import _BUILTIN_GROUPS
 
 
 def create_app():
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel
 
@@ -109,7 +109,9 @@ def create_app():
         cfg = load_config()
         store = Store(cfg.db_path)
         out = [
-            {"name": s.name, "description": s.description, "uses": s.uses}
+            {"name": s.name, "description": s.description, "uses": s.uses,
+             "level": s.level, "stars": s.stars,
+             "successes": s.successes, "failures": s.failures}
             for s in store.all_skills()
         ]
         store.close()
@@ -154,6 +156,13 @@ def create_app():
         out = store.session_messages(session_id)
         store.close()
         return {"messages": out}
+
+    @app.patch("/sessions/{session_id}")
+    async def rename_session(session_id: int, body: RenameBody) -> dict:
+        store = Store(load_config().db_path)
+        store.rename_session(session_id, body.title)
+        store.close()
+        return {"ok": True}
 
     @app.delete("/sessions/{session_id}")
     async def delete_session(session_id: int) -> dict:
@@ -576,6 +585,48 @@ def create_app():
         sched = getattr(app.state, "scheduler", None)
         if sched is not None:
             await sched.stop()
+
+    # ── Backup / restore + knowledge export/import ───────────────────────────
+    @app.get("/backup")
+    async def backup_download(include_secrets: bool = False):
+        from fastapi.responses import FileResponse
+
+        from xplogent.core import backup as backup_mod
+        res = await asyncio.to_thread(backup_mod.create_backup, None, include_secrets=include_secrets)
+        return FileResponse(res["path"], filename="xplogent-backup.tar.gz",
+                            media_type="application/gzip")
+
+    @app.post("/restore")
+    async def backup_restore(request: Request) -> dict:
+        """Restore from an uploaded .tar.gz sent as the raw request body."""
+        import tempfile
+
+        from xplogent.core import backup as backup_mod
+        data = await request.body()
+        if not data:
+            return {"ok": False, "error": "empty upload"}
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        return await asyncio.to_thread(backup_mod.restore_backup, tmp_path)
+
+    @app.get("/export/knowledge")
+    async def export_knowledge() -> dict:
+        from xplogent.core.backup import export_knowledge as _export
+        store = Store(load_config().db_path)
+        try:
+            return _export(store)
+        finally:
+            store.close()
+
+    @app.post("/import/knowledge")
+    async def import_knowledge(body: dict) -> dict:
+        from xplogent.core.backup import import_knowledge as _import
+        store = Store(load_config().db_path)
+        try:
+            return _import(store, body)
+        finally:
+            store.close()
 
     # ── One-click update ─────────────────────────────────────────────────────
     @app.get("/update/check")

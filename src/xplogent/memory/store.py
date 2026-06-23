@@ -98,6 +98,18 @@ class Fact:
     embedding: list[float]
     source: str
     created_at: float
+    embed_model: str = ""
+
+
+def skill_level(uses: int, successes: int, failures: int) -> tuple[str, int]:
+    """Map usage + outcomes to a (label, stars 1-3) proficiency level."""
+    total = successes + failures
+    rate = (successes / total) if total else 1.0
+    if uses >= 8 and rate >= 0.7:
+        return "expert", 3
+    if uses >= 3 and rate >= 0.4:
+        return "proficient", 2
+    return "novice", 1
 
 
 @dataclass
@@ -108,6 +120,18 @@ class SkillRow:
     body: str
     embedding: list[float]
     uses: int
+    successes: int = 0
+    failures: int = 0
+    last_used: float | None = None
+    embed_model: str = ""
+
+    @property
+    def level(self) -> str:
+        return skill_level(self.uses, self.successes, self.failures)[0]
+
+    @property
+    def stars(self) -> int:
+        return skill_level(self.uses, self.successes, self.failures)[1]
 
 
 class Store:
@@ -121,7 +145,25 @@ class Store:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.executescript(_SCHEMA)
             self.conn.commit()
+            self._migrate()
             self._init_fts()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the initial schema (idempotent)."""
+        def cols(table: str) -> set[str]:
+            return {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+
+        adds = [
+            ("facts", "embed_model", "TEXT DEFAULT ''"),
+            ("skills", "embed_model", "TEXT DEFAULT ''"),
+            ("skills", "successes", "INTEGER DEFAULT 0"),
+            ("skills", "failures", "INTEGER DEFAULT 0"),
+            ("skills", "last_used", "REAL"),
+        ]
+        for table, col, ddl in adds:
+            if col not in cols(table):
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+        self.conn.commit()
 
     def _init_fts(self) -> None:
         """Best-effort full-text index over message content (FTS5 may be absent)."""
@@ -172,6 +214,10 @@ class Store:
             "AND (title IS NULL OR title='' OR title='chat')",
             (title, session_id),
         )
+
+    def rename_session(self, session_id: int, title: str) -> None:
+        """Force-set a session title (user rename)."""
+        self._write("UPDATE sessions SET title=? WHERE id=?", (title, session_id))
 
     def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
         rows = self._query(
@@ -230,10 +276,12 @@ class Store:
         return [dict(r) for r in rows]
 
     # -- facts -----------------------------------------------------------------
-    def add_fact(self, content: str, embedding: list[float], source: str = "") -> int:
+    def add_fact(self, content: str, embedding: list[float], source: str = "",
+                 embed_model: str = "") -> int:
         cur = self._write(
-            "INSERT INTO facts (content, embedding, source, created_at) VALUES (?,?,?,?)",
-            (content, json.dumps(embedding), source, time.time()),
+            "INSERT INTO facts (content, embedding, source, created_at, embed_model) "
+            "VALUES (?,?,?,?,?)",
+            (content, json.dumps(embedding), source, time.time(), embed_model),
         )
         return int(cur.lastrowid)
 
@@ -241,7 +289,7 @@ class Store:
         rows = self._query("SELECT * FROM facts")
         return [
             Fact(r["id"], r["content"], json.loads(r["embedding"] or "[]"),
-                 r["source"], r["created_at"])
+                 r["source"], r["created_at"], r["embed_model"] if "embed_model" in r.keys() else "")
             for r in rows
         ]
 
@@ -250,25 +298,39 @@ class Store:
 
     # -- skills ----------------------------------------------------------------
     def upsert_skill(self, name: str, description: str, body: str,
-                     embedding: list[float]) -> None:
+                     embedding: list[float], embed_model: str = "") -> None:
         self._write(
-            "INSERT INTO skills (name, description, body, embedding, uses, created_at) "
-            "VALUES (?,?,?,?,0,?) "
+            "INSERT INTO skills (name, description, body, embedding, uses, created_at, embed_model) "
+            "VALUES (?,?,?,?,0,?,?) "
             "ON CONFLICT(name) DO UPDATE SET description=excluded.description, "
-            "body=excluded.body, embedding=excluded.embedding",
-            (name, description, body, json.dumps(embedding), time.time()),
+            "body=excluded.body, embedding=excluded.embedding, embed_model=excluded.embed_model",
+            (name, description, body, json.dumps(embedding), time.time(), embed_model),
         )
 
     def all_skills(self) -> list[SkillRow]:
         rows = self._query("SELECT * FROM skills")
-        return [
-            SkillRow(r["id"], r["name"], r["description"], r["body"],
-                     json.loads(r["embedding"] or "[]"), r["uses"])
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            keys = r.keys()
+            out.append(SkillRow(
+                r["id"], r["name"], r["description"], r["body"],
+                json.loads(r["embedding"] or "[]"), r["uses"],
+                successes=r["successes"] if "successes" in keys else 0,
+                failures=r["failures"] if "failures" in keys else 0,
+                last_used=r["last_used"] if "last_used" in keys else None,
+                embed_model=r["embed_model"] if "embed_model" in keys else "",
+            ))
+        return out
 
     def increment_skill_use(self, name: str) -> None:
         self._write("UPDATE skills SET uses = uses + 1 WHERE name=?", (name,))
+
+    def record_skill_outcome(self, name: str, success: bool) -> None:
+        col = "successes" if success else "failures"
+        self._write(
+            f"UPDATE skills SET {col} = {col} + 1, last_used=? WHERE name=?",
+            (time.time(), name),
+        )
 
     def delete_skill(self, name: str) -> None:
         self._write("DELETE FROM skills WHERE name=?", (name,))
