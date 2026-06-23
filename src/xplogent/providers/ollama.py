@@ -74,6 +74,7 @@ class OllamaProvider(Provider):
 
         content_parts: list[str] = []
         tool_calls: list[ToolCall] = []
+        usage: dict[str, int] | None = None
 
         async with self._client.stream("POST", "/api/chat", json=payload) as resp:
             resp.raise_for_status()
@@ -81,6 +82,9 @@ class OllamaProvider(Provider):
                 if not line.strip():
                     continue
                 chunk = json.loads(line)
+                if chunk.get("done") and ("eval_count" in chunk or "prompt_eval_count" in chunk):
+                    usage = {"input_tokens": int(chunk.get("prompt_eval_count", 0)),
+                             "output_tokens": int(chunk.get("eval_count", 0))}
                 msg = chunk.get("message") or {}
                 delta = msg.get("content") or ""
                 if delta:
@@ -99,7 +103,8 @@ class OllamaProvider(Provider):
                                  name=fn.get("name", ""), arguments=args)
                     )
 
-        final = Message(role=Role.ASSISTANT, content="".join(content_parts), tool_calls=tool_calls)
+        final = Message(role=Role.ASSISTANT, content="".join(content_parts),
+                        tool_calls=tool_calls, usage=usage)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

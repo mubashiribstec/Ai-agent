@@ -71,6 +71,7 @@ class OpenAIProvider(Provider):
             "model": self.model,
             "messages": [m.to_openai() for m in messages],
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         # Reasoning models (o-series / gpt-5) reject a custom temperature.
         if not reasoning:
@@ -87,6 +88,7 @@ class OpenAIProvider(Provider):
         content_parts: list[str] = []
         # tool call deltas accumulate by index
         tc_acc: dict[int, dict[str, Any]] = {}
+        usage: dict[str, int] | None = None
 
         async with self._client.stream("POST", "/chat/completions", json=payload) as resp:
             resp.raise_for_status()
@@ -98,6 +100,9 @@ class OpenAIProvider(Provider):
                 if data == "[DONE]":
                     break
                 chunk = json.loads(data)
+                if u := chunk.get("usage"):
+                    usage = {"input_tokens": int(u.get("prompt_tokens", 0)),
+                             "output_tokens": int(u.get("completion_tokens", 0))}
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
@@ -124,7 +129,8 @@ class OpenAIProvider(Provider):
                 args = {}
             tool_calls.append(ToolCall(id=slot["id"] or "call_0", name=slot["name"], arguments=args))
 
-        final = Message(role=Role.ASSISTANT, content="".join(content_parts), tool_calls=tool_calls)
+        final = Message(role=Role.ASSISTANT, content="".join(content_parts),
+                        tool_calls=tool_calls, usage=usage)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

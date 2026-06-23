@@ -17,7 +17,8 @@ from xplogent.memory.store import Store
 
 def _new_metric() -> dict[str, Any]:
     return {"name": "", "role": "", "steps": 0, "tool_calls": 0,
-            "approx_tokens": 0, "status": "idle", "current_tool": None}
+            "approx_tokens": 0, "input_tokens": 0, "output_tokens": 0,
+            "status": "idle", "current_tool": None}
 
 
 class TraceRecorder:
@@ -54,6 +55,10 @@ class TraceRecorder:
                 m["current_tool"] = data.get("tool")
             elif event.type == EventType.TOKEN:
                 m["approx_tokens"] += max(1, len(str(data.get("text", ""))) // 4)
+            elif event.type == EventType.USAGE:
+                # real counts when the provider reports them
+                m["input_tokens"] += int(data.get("input_tokens", 0))
+                m["output_tokens"] += int(data.get("output_tokens", 0))
             elif event.type == EventType.AGENT_STATUS:
                 m["status"] = data.get("status", m["status"])
                 m["current_tool"] = data.get("current_tool")

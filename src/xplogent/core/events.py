@@ -31,6 +31,8 @@ class EventType(StrEnum):
     # memory / skills
     MEMORY = "memory"
     SKILL = "skill"
+    # token accounting / context window
+    USAGE = "usage"
     # multi-agent
     AGENT_SPAWN = "agent_spawn"      # a worker started
     AGENT_STATUS = "agent_status"    # status change (running/paused/done/cancelled)

@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from xplogent.core.config import Config
 from xplogent.core.context import ShortTermMemory, build_system_prompt
 from xplogent.core.events import Event, EventBus, EventType
+from xplogent.core.limits import context_window
 from xplogent.core.logging import get_logger
 from xplogent.core.retry import RETRYABLE, RetryPolicy, classify_error
 from xplogent.memory.manager import MemoryManager
@@ -81,6 +82,7 @@ class Agent:
         self.status = "idle"
         self.current_tool: str | None = None
         self.steps_taken = 0
+        self.session_tokens = {"input": 0, "output": 0}  # cumulative this agent
 
     def load_history(self, limit: int = 40) -> None:
         """Seed short-term memory from the persisted session so chat continues."""
@@ -162,6 +164,7 @@ class Agent:
                     break
 
                 self.stm.add(assistant)
+                await self._emit_usage(assistant)
                 if assistant.content:
                     transcript.append(f"ASSISTANT: {assistant.content}")
                     await self._emit(EventType.MESSAGE, content=assistant.content)
@@ -225,6 +228,23 @@ class Agent:
                 _log.warning("provider %s for agent %s; retry %d", kind, self.name, attempt)
                 await asyncio.sleep(policy.delay_for(attempt))
         return None
+
+    async def _emit_usage(self, assistant: Message) -> None:
+        """Emit real token usage + context-window fill for this turn."""
+        model_spec = f"{getattr(self.provider, 'name', '?')}:{getattr(self.provider, 'model', '')}"
+        limit = context_window(model_spec, self.config.raw.get("model_limits"))
+        used = sum(len(m.content) // 4 + 1 for m in self.stm.render())
+        data = {"model": model_spec, "context_limit": limit, "context_used": used}
+        if assistant.usage:
+            self.session_tokens["input"] += assistant.usage.get("input_tokens", 0)
+            self.session_tokens["output"] += assistant.usage.get("output_tokens", 0)
+            data.update({
+                "input_tokens": assistant.usage.get("input_tokens", 0),
+                "output_tokens": assistant.usage.get("output_tokens", 0),
+                "session_input": self.session_tokens["input"],
+                "session_output": self.session_tokens["output"],
+            })
+        await self._emit(EventType.USAGE, **data)
 
     async def _run_tool(self, name: str, arguments: dict) -> str:
         tool = self.tools.get(name)

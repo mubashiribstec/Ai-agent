@@ -60,6 +60,7 @@ class Message:
     tool_call_id: str | None = None  # set on TOOL messages
     name: str | None = None          # tool name on TOOL messages
     images: list[str] = field(default_factory=list)  # image paths/data-URIs (vision)
+    usage: dict[str, int] | None = None  # {input_tokens, output_tokens} when reported
 
     def to_openai(self) -> dict[str, Any]:
         msg: dict[str, Any] = {"role": self.role.value}

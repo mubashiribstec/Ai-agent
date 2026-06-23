@@ -133,6 +133,7 @@ class AnthropicProvider(Provider):
         tool_calls: list[ToolCall] = []
         cur_tool: dict[str, Any] | None = None
         cur_json = ""
+        usage = {"input_tokens": 0, "output_tokens": 0}
 
         async with self._client.stream("POST", "/messages", json=payload) as resp:
             resp.raise_for_status()
@@ -142,6 +143,14 @@ class AnthropicProvider(Provider):
                     continue
                 event = json.loads(line[len("data:"):].strip())
                 etype = event.get("type")
+                if etype == "message_start":
+                    u = (event.get("message") or {}).get("usage") or {}
+                    usage["input_tokens"] = int(u.get("input_tokens", 0))
+                    usage["output_tokens"] = int(u.get("output_tokens", 0))
+                elif etype == "message_delta":
+                    u = event.get("usage") or {}
+                    if "output_tokens" in u:
+                        usage["output_tokens"] = int(u["output_tokens"])
                 if etype == "content_block_start":
                     block = event.get("content_block", {})
                     if block.get("type") == "tool_use":
@@ -164,7 +173,9 @@ class AnthropicProvider(Provider):
                     tool_calls.append(ToolCall(id=cur_tool["id"], name=cur_tool["name"], arguments=args))
                     cur_tool = None
 
-        final = Message(role=Role.ASSISTANT, content="".join(content_parts), tool_calls=tool_calls)
+        final = Message(role=Role.ASSISTANT, content="".join(content_parts),
+                        tool_calls=tool_calls,
+                        usage=usage if usage["input_tokens"] or usage["output_tokens"] else None)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
     async def aclose(self) -> None:
