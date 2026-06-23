@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Copy, ImagePlus, RotateCcw, Search, Send, Square, Trash2, X,
+  Copy, Download, FileJson, ImagePlus, RotateCcw, Search, Send, Share2, ShieldCheck,
+  Square, Trash2, X,
 } from "lucide-react";
 import {
   ApprovalRequest, ConnStatus, XplogentEvent, XplogentSocket,
@@ -10,6 +11,7 @@ import {
 import { GenChoice, ModelBar } from "../ModelBar";
 import { Markdown } from "../Markdown";
 import { useToast } from "../components/Toast";
+import { downloadJSON, downloadMarkdown, shareHTML } from "../lib/exportChat";
 
 interface LogLine { kind: "assistant" | "tool" | "result" | "note" | "user"; text: string; ok?: boolean; }
 interface Usage {
@@ -39,6 +41,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [, setConn] = useState<ConnStatus>("connecting");
   const [gen, setGen] = useState<GenChoice>({ model: "", effort: "off", thinking: false });
+  // Approval scope: auto-approve up to high risk for "this chat" or "this session".
+  const autoChat = useRef(false);
+  const autoSession = useRef(false);
+  const [autoScope, setAutoScope] = useState<"" | "chat" | "session">("");
   const lastTask = useRef<string>("");
   const sock = useRef<XplogentSocket | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -68,7 +74,14 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
       case "usage": setUsage(ev as unknown as Usage); break;
       case "session":
         sessionId.current = Number(ev.id); localStorage.setItem("xplogent_session", String(ev.id)); break;
-      case "approval_required": setApproval(ev as unknown as ApprovalRequest); break;
+      case "approval_required": {
+        const req = ev as unknown as ApprovalRequest;
+        // Critical always prompts; otherwise honor a chosen chat/session scope.
+        if (req.risk !== "critical" && (autoChat.current || autoSession.current)) {
+          sock.current?.resolveApproval(req.id, true);
+        } else setApproval(req);
+        break;
+      }
       case "error": toast(String(ev.message ?? "error"), "error"); break;
       case "done": setBusy(false); refreshSkills(); refreshSessions(); break;
     }
@@ -89,6 +102,8 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
 
   const loadSession = (id: number | null) => {
     sessionId.current = id; setActiveId(id); setUsage(null);
+    autoChat.current = false;  // per-chat approval doesn't carry across chats
+    if (!autoSession.current) setAutoScope("");
     if (id) {
       localStorage.setItem("xplogent_session", String(id));
       getSessionMessages(id).then((r) => setLog(r.messages.map((m: any) => ({
@@ -130,7 +145,17 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   };
   const stop = () => { sock.current?.cancel(); setBusy(false); };
   const regenerate = () => { if (lastTask.current && !busy) { setInput(lastTask.current); setTimeout(send, 0); } };
-  const resolve = (allowed: boolean) => { if (approval) sock.current?.resolveApproval(approval.id, allowed); setApproval(null); };
+  const resolve = (allowed: boolean, scope: "" | "chat" | "session" = "") => {
+    if (allowed && scope === "chat") { autoChat.current = true; setAutoScope("chat"); }
+    if (allowed && scope === "session") { autoSession.current = true; setAutoScope("session"); }
+    if (approval) sock.current?.resolveApproval(approval.id, allowed);
+    setApproval(null);
+  };
+  const clearAuto = () => { autoChat.current = false; autoSession.current = false; setAutoScope(""); };
+
+  const transcript = () => log.filter((l) => l.kind === "user" || l.kind === "assistant")
+    .map((l) => ({ role: l.kind, text: l.text }));
+  const chatTitle = () => sessions.find((s) => s.id === activeId)?.title || "Xplogent chat";
 
   return (
     <div className="view">
@@ -180,6 +205,22 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
 
       <main className="chat">
         <ModelBar value={gen} onChange={setGen} />
+        <div className="chat-toolbar">
+          {autoScope && (
+            <span className="badge warn">
+              <ShieldCheck size={13} /> auto-approving ({autoScope})
+              <button className="linkx" onClick={clearAuto}>turn off</button>
+            </span>
+          )}
+          <div style={{ flex: 1 }} />
+          <button className="btn ghost sm" title="Download as Markdown" disabled={!log.length}
+            onClick={() => downloadMarkdown(chatTitle(), transcript())}><Download size={15} /> .md</button>
+          <button className="btn ghost sm" title="Download as JSON" disabled={!log.length}
+            onClick={() => downloadJSON(chatTitle(), transcript())}><FileJson size={15} /> .json</button>
+          <button className="btn ghost sm" title="Export a shareable HTML file" disabled={!log.length}
+            onClick={() => { shareHTML(chatTitle(), transcript()); toast("shareable HTML exported", "success"); }}>
+            <Share2 size={15} /> Share</button>
+        </div>
         <div className="log">
           {log.length === 0 && <div className="empty"><ImagePlus size={28} />
             <div>Start a conversation. Attach an image to use vision.</div></div>}
@@ -255,13 +296,24 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-body">
               <h3>Approval required</h3>
-              <p><b>{approval.tool}</b> — risk <span className="badge warn">{approval.risk}</span></p>
+              <p><b>{approval.tool}</b> — risk{" "}
+                <span className={`badge ${approval.risk === "critical" ? "bad" : "warn"}`}>{approval.risk}</span></p>
               {approval.reason && <p className="dim">{approval.reason}</p>}
               <pre className="snippet">{JSON.stringify(approval.arguments, null, 2)}</pre>
+              {approval.risk !== "critical" && (
+                <p className="dim" style={{ fontSize: 12 }}>
+                  <ShieldCheck size={12} /> "this chat" / "this session" auto-approve non-critical
+                  tools so you aren't asked every time. Critical actions always prompt.
+                </p>
+              )}
             </div>
-            <div className="modal-actions">
+            <div className="modal-actions" style={{ flexWrap: "wrap" }}>
               <button className="btn danger" onClick={() => resolve(false)}>Deny</button>
-              <button className="btn primary" onClick={() => resolve(true)}>Approve</button>
+              <button className="btn" onClick={() => resolve(true)}>Allow once</button>
+              {approval.risk !== "critical" && <>
+                <button className="btn" onClick={() => resolve(true, "chat")}>Allow this chat</button>
+                <button className="btn primary" onClick={() => resolve(true, "session")}>Allow this session</button>
+              </>}
             </div>
           </div>
         </div>

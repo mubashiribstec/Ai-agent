@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from xplogent.core.config import env_path, xplogent_home
+from xplogent.core.config import data_dir, env_path, xplogent_home
 from xplogent.core.logging import get_logger
 from xplogent.memory.store import Store
 
@@ -44,7 +44,8 @@ def create_backup(dest: Path | str | None = None, *, include_secrets: bool = Fal
         dest = backups / f"xplogent-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
     dest = Path(dest)
 
-    db = home / "xplogent.db"
+    # Memory (DB) + skills live in the install data dir; config/.env in home.
+    db = data_dir() / "xplogent.db"
     with tempfile.TemporaryDirectory() as tmp:
         tmp_db = Path(tmp) / "xplogent.db"
         if db.exists():
@@ -52,7 +53,7 @@ def create_backup(dest: Path | str | None = None, *, include_secrets: bool = Fal
         with tarfile.open(dest, "w:gz") as tar:
             if tmp_db.exists():
                 tar.add(tmp_db, arcname="xplogent.db")
-            skills = home / "skills"
+            skills = data_dir() / "skills"
             if skills.is_dir():
                 tar.add(skills, arcname="skills")
             cfg = home / "config.yaml"
@@ -63,26 +64,29 @@ def create_backup(dest: Path | str | None = None, *, include_secrets: bool = Fal
     return {"ok": True, "path": str(dest), "size": dest.stat().st_size}
 
 
-def _safe_members(tar: tarfile.TarFile, base: Path) -> list[tarfile.TarInfo]:
-    safe = []
-    for m in tar.getmembers():
-        target = (base / m.name).resolve()
-        if base.resolve() in target.parents or target == base.resolve():
-            safe.append(m)
-        else:
-            _log.warning("skipping unsafe path in backup: %s", m.name)
-    return safe
-
-
 def restore_backup(path: Path | str) -> dict[str, Any]:
-    """Extract a backup into the Xplogent home (overwrites DB/config/skills)."""
+    """Restore a backup: DB + skills → the data dir, config/.env → home."""
     path = Path(path)
     if not path.exists():
         return {"ok": False, "error": f"no such file: {path}"}
     home = xplogent_home()
+    data = data_dir()
     with tarfile.open(path, "r:gz") as tar:
-        tar.extractall(home, members=_safe_members(tar, home))  # noqa: S202 - filtered above
-    return {"ok": True, "restored_to": str(home)}
+        for m in tar.getmembers():
+            name = m.name.replace("\\", "/")
+            if name == "xplogent.db" or name.startswith("skills/") or name == "skills":
+                _extract_one(tar, m, data)
+            elif name in ("config.yaml", ".env"):
+                _extract_one(tar, m, home)
+    return {"ok": True, "restored_to": str(data)}
+
+
+def _extract_one(tar: tarfile.TarFile, member: tarfile.TarInfo, base: Path) -> None:
+    target = (base / member.name).resolve()
+    if base.resolve() not in target.parents and target != base.resolve():
+        _log.warning("skipping unsafe path in backup: %s", member.name)
+        return
+    tar.extract(member, base)  # noqa: S202 - path validated above
 
 
 # ── knowledge (facts + skills) export / import ───────────────────────────────

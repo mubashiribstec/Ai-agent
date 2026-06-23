@@ -20,10 +20,60 @@ _DEFAULT_CONFIG = _PACKAGE_ROOT / "config" / "default.yaml"
 
 
 def xplogent_home() -> Path:
-    """Return the Xplogent data directory, creating it if needed."""
+    """Config/secrets/logs directory (``~/.xplogent``), creating it if needed."""
     home = Path(os.environ.get("XPLOGENT_HOME", Path.home() / ".xplogent"))
     home.mkdir(parents=True, exist_ok=True)
     return home
+
+
+def install_root() -> Path | None:
+    """The framework's install/repo root (dir holding pyproject.toml or .git), or None."""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").exists() or (parent / ".git").exists():
+            return parent
+    return None
+
+
+_migrated = False
+
+
+def data_dir() -> Path:
+    """Fixed location for **skills + memory** — inside the install folder.
+
+    ``XPLOGENT_HOME`` still overrides (used by tests/advanced setups). When the
+    framework isn't a source/repo install (no pyproject/.git found), falls back to
+    ``~/.xplogent`` so wheel installs keep working.
+    """
+    env = os.environ.get("XPLOGENT_HOME")
+    if env:
+        base = Path(env)
+    else:
+        root = install_root()
+        base = (root / "data") if root else xplogent_home()
+    base.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_data(base)
+    return base
+
+
+def _migrate_legacy_data(base: Path) -> None:
+    """One-time copy of an existing ~/.xplogent db + skills into the new data dir."""
+    global _migrated
+    if _migrated:
+        return
+    _migrated = True
+    legacy = Path.home() / ".xplogent"
+    try:
+        if base.resolve() == legacy.resolve():
+            return
+        import shutil
+
+        if not (base / "xplogent.db").exists() and (legacy / "xplogent.db").exists():
+            shutil.copy2(legacy / "xplogent.db", base / "xplogent.db")
+        if not (base / "skills").exists() and (legacy / "skills").is_dir():
+            shutil.copytree(legacy / "skills", base / "skills")
+    except OSError:
+        pass  # best-effort migration
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -74,11 +124,12 @@ class Config:
 
     @property
     def db_path(self) -> Path:
-        return self.home / "xplogent.db"
+        # Memory (the SQLite DB) is pinned to the install data dir.
+        return data_dir() / "xplogent.db"
 
     @property
     def skills_dir(self) -> Path:
-        d = self.home / "skills"
+        d = data_dir() / "skills"
         d.mkdir(parents=True, exist_ok=True)
         return d
 
