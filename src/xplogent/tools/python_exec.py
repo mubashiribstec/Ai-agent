@@ -1,10 +1,12 @@
-"""Execute Python code in a subprocess and capture its output."""
+"""Execute Python code via the configured terminal backend and capture output."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import sys
 
+from xplogent.core.backends import TerminalBackend, resolve_backend
 from xplogent.safety.approval import RiskLevel
 from xplogent.tools.base import Tool, ToolResult
 
@@ -25,7 +27,24 @@ class PythonExecTool(Tool):
     }
     risk = RiskLevel.HIGH
 
+    def __init__(self, backend: TerminalBackend | None = None) -> None:
+        self._backend = backend
+
     async def run(self, code: str, timeout: int = 60) -> ToolResult:
+        backend = self._backend or resolve_backend()
+        if backend.name == "local":
+            return await self._run_local(code, timeout)
+        # Docker/SSH: ship the code base64-encoded so quoting/newlines survive.
+        b64 = base64.b64encode(code.encode("utf-8")).decode("ascii")
+        command = f"echo {b64} | base64 -d | python3"
+        rc, out, err = await backend.run(command, timeout=timeout)
+        body = out + (("\n[stderr]\n" + err) if err else "")
+        ok = rc == 0
+        return ToolResult(ok=ok, output=body.strip(),
+                          error="" if ok else (err.strip() or f"non-zero exit ({rc})"),
+                          data={"backend": backend.name})
+
+    async def _run_local(self, code: str, timeout: int) -> ToolResult:
         try:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "-c", code,

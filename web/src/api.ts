@@ -178,6 +178,43 @@ export async function deleteSession(id: number) {
   await fetch(`/sessions/${id}`, { method: "DELETE" });
 }
 
+// ── Scheduler ─────────────────────────────────────────────────────────────────
+export interface Schedule {
+  id: number;
+  name: string;
+  prompt: string;
+  mode: string;
+  spec: string;
+  tz: string;
+  enabled: number;
+  next_run: number | null;
+  last_run: number | null;
+  last_status: string | null;
+}
+
+export async function getSchedules(): Promise<{ schedules: Schedule[] }> {
+  return (await fetch("/schedules")).json();
+}
+
+export async function addSchedule(body: {
+  prompt: string; schedule: string; mode?: string; name?: string; tz?: string;
+}): Promise<Record<string, any>> {
+  const r = await fetch("/schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+export async function toggleSchedule(id: number) {
+  await fetch(`/schedules/${id}/toggle`, { method: "POST" });
+}
+
+export async function deleteSchedule(id: number) {
+  await fetch(`/schedules/${id}`, { method: "DELETE" });
+}
+
 // ── Guide ─────────────────────────────────────────────────────────────────────
 export async function getGuidePages(): Promise<{ pages: { slug: string; title: string }[] }> {
   return (await fetch("/guide")).json();

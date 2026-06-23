@@ -25,6 +25,7 @@ from xplogent.core.events import Event, EventBus, EventType
 from xplogent.core.logging import get_logger
 from xplogent.core.messaging import MessageBus
 from xplogent.core.planner import Planner
+from xplogent.core.retry import ErrorClass, RetryPolicy, classify_error
 from xplogent.core.taskboard import Task, TaskBoard, TaskStatus
 from xplogent.memory.manager import MemoryManager
 from xplogent.memory.store import Store
@@ -77,6 +78,8 @@ class Orchestrator:
         self.message_bus = MessageBus(bus, store=store, run_id=self.run_id)
         self.board = TaskBoard(bus, run_id=self.run_id)
         self.default_max = int(config.orchestrator.get("max_concurrent_agents", 3))
+        self.task_retries = int(config.orchestrator.get("max_task_retries", 2))
+        self.max_delegation_depth = int(config.orchestrator.get("max_delegation_depth", 2))
         self.agents: dict[str, Agent] = {}
         self._providers: list[Provider] = []
         self._active = 0
@@ -84,7 +87,7 @@ class Orchestrator:
 
     # -- worker construction ---------------------------------------------------
     def _make_worker(self, name: str, role: str, model: str | None = None,
-                     agent_id: str | None = None) -> Agent:
+                     agent_id: str | None = None, depth: int = 0) -> Agent:
         profile = PermissionProfile.from_role(role, self.config.roles)
         provider = build_provider(model or self.config.model)
         self._providers.append(provider)
@@ -92,7 +95,9 @@ class Orchestrator:
         agent_id = agent_id or uuid.uuid4().hex[:8]
         tools = self.base_tools.filtered(profile.tool_filter())
         if self.config.orchestrator.get("enable_collab_tools", True):
-            for tool in collab_tools(self.message_bus, agent_id, name):
+            for tool in collab_tools(self.message_bus, agent_id, name,
+                                     delegate=self.delegate, depth=depth,
+                                     max_depth=self.max_delegation_depth):
                 if profile.allows_tool(tool.name):
                     tools.register(tool)
 
@@ -125,6 +130,16 @@ class Orchestrator:
                 return await agent.run(task)
             finally:
                 self._active -= 1
+
+    async def delegate(self, task: str, role: str = "operator", depth: int = 1) -> str:
+        """Spawn a fresh sub-agent mid-run (used by the ``delegate_task`` tool).
+
+        Shares this orchestrator's run, message bus, and concurrency semaphore, so
+        a worker can fan out its own helpers and they all show up in monitoring.
+        """
+        name = f"{role}-sub-{uuid.uuid4().hex[:6]}"
+        agent = self._make_worker(name, role, depth=depth)
+        return await self._spawn(agent, task)
 
     # -- control ---------------------------------------------------------------
     def control(self, agent_id: str, action: str) -> bool:
@@ -206,21 +221,37 @@ class Orchestrator:
 
     async def _run_task(self, task: Task) -> None:
         name = f"{task.role}-{task.id}"
-        agent = self._make_worker(
-            name, task.role, agent_id=getattr(self, "_task_agent_ids", {}).get(task.id)
-        )
+        agent_id = getattr(self, "_task_agent_ids", {}).get(task.id)
         await self.board.claim(task.id, name)
         prompt = task.description
         deps = self.board.dependency_results(task)
         if deps:
             ctx = "\n\n".join(f"### {title}\n{result}" for title, result in deps.items())
             prompt += f"\n\nContext from completed subtasks:\n{ctx}"
-        try:
-            answer = await self._spawn(agent, prompt)
-            await self.board.complete(task.id, answer)
-        except Exception as exc:  # noqa: BLE001
-            _log.exception("task %s failed", task.id)
-            await self.board.fail(task.id, str(exc))
+
+        policy = RetryPolicy.from_attempts(self.task_retries)
+        last_exc: Exception | None = None
+        for attempt in range(1, policy.max_attempts + 1):
+            # A fresh worker per attempt (clean session/state).
+            agent = self._make_worker(name, task.role, agent_id=agent_id)
+            try:
+                answer = await self._spawn(agent, prompt)
+                await self.board.complete(task.id, answer)
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                kind = classify_error(exc)
+                if kind == ErrorClass.FATAL or attempt >= policy.max_attempts:
+                    break
+                _log.warning("task %s attempt %d failed (%s); retrying", task.id, attempt, kind)
+                await self.bus.publish(Event(
+                    type=EventType.RUN_PROGRESS,
+                    data={"run_id": self.run_id, "task": task.id, "retry": attempt,
+                          "reason": kind.value},
+                ))
+                await asyncio.sleep(policy.delay_for(attempt))
+        _log.exception("task %s failed", task.id, exc_info=last_exc)
+        await self.board.fail(task.id, str(last_exc))
 
     async def aclose(self) -> None:
         for provider in self._providers:

@@ -17,6 +17,7 @@ from xplogent.core.config import Config
 from xplogent.core.context import ShortTermMemory, build_system_prompt
 from xplogent.core.events import Event, EventBus, EventType
 from xplogent.core.logging import get_logger
+from xplogent.core.retry import RETRYABLE, RetryPolicy, classify_error
 from xplogent.memory.manager import MemoryManager
 from xplogent.providers.base import Message, Provider, Role, StreamKind
 from xplogent.safety.approval import ApprovalRequest, SafetyManager
@@ -197,20 +198,33 @@ class Agent:
         return final_answer
 
     async def _stream_assistant(self, messages, tool_specs) -> Message | None:
-        """Stream one assistant turn, isolating provider failures."""
-        assistant: Message | None = None
+        """Stream one assistant turn, retrying transient provider failures.
+
+        A retry only happens if the error arrives *before* any token was streamed,
+        so the user never sees duplicated output.
+        """
         params = {"temperature": self._temperature, **self.gen_params}
-        try:
-            async for ev in self.provider.stream(messages, tool_specs, **params):
-                if ev.kind == StreamKind.TOKEN:
-                    await self._emit(EventType.TOKEN, text=ev.text)
-                elif ev.kind == StreamKind.DONE:
-                    assistant = ev.message
-        except Exception as exc:  # noqa: BLE001 - one agent's failure must not crash others
-            _log.warning("provider error for agent %s: %s", self.name, exc)
-            await self._emit(EventType.ERROR, message=f"provider error: {exc}")
-            return None
-        return assistant or Message(role=Role.ASSISTANT, content="")
+        policy = RetryPolicy.from_attempts(int(self.config.agent.get("provider_retries", 2)))
+        for attempt in range(1, policy.max_attempts + 1):
+            assistant: Message | None = None
+            emitted = False
+            try:
+                async for ev in self.provider.stream(messages, tool_specs, **params):
+                    if ev.kind == StreamKind.TOKEN:
+                        emitted = True
+                        await self._emit(EventType.TOKEN, text=ev.text)
+                    elif ev.kind == StreamKind.DONE:
+                        assistant = ev.message
+                return assistant or Message(role=Role.ASSISTANT, content="")
+            except Exception as exc:  # noqa: BLE001 - one agent's failure must not crash others
+                kind = classify_error(exc)
+                if emitted or kind not in RETRYABLE or attempt >= policy.max_attempts:
+                    _log.warning("provider error for agent %s: %s", self.name, exc)
+                    await self._emit(EventType.ERROR, message=f"provider error: {exc}")
+                    return None
+                _log.warning("provider %s for agent %s; retry %d", kind, self.name, attempt)
+                await asyncio.sleep(policy.delay_for(attempt))
+        return None
 
     async def _run_tool(self, name: str, arguments: dict) -> str:
         tool = self.tools.get(name)

@@ -24,6 +24,7 @@ from xplogent.providers.base import (
     ToolCall,
     ToolSpec,
     extract_gen_params,
+    image_data_uri,
 )
 
 ANTHROPIC_VERSION = "2023-06-01"
@@ -83,6 +84,15 @@ class AnthropicProvider(Provider):
                         {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
                     )
                 out.append({"role": "assistant", "content": content or ""})
+            elif m.images:  # USER with vision input
+                parts: list[dict[str, Any]] = []
+                if m.content:
+                    parts.append({"type": "text", "text": m.content})
+                for img in m.images:
+                    media, b64 = image_data_uri(img)
+                    parts.append({"type": "image", "source": {
+                        "type": "base64", "media_type": media, "data": b64}})
+                out.append({"role": "user", "content": parts})
             else:  # USER
                 out.append({"role": "user", "content": m.content})
         return "\n\n".join(system_parts), out

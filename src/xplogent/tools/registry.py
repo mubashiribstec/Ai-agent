@@ -9,6 +9,7 @@ from xplogent.tools.filesystem import filesystem_tools
 from xplogent.tools.gui import gui_tools
 from xplogent.tools.python_exec import PythonExecTool
 from xplogent.tools.shell import ShellTool
+from xplogent.tools.vision import vision_tools
 from xplogent.tools.web import web_tools
 
 # Maps a config group name to a factory producing its tools.
@@ -19,6 +20,7 @@ _BUILTIN_GROUPS = {
     "web": web_tools,
     "gui": gui_tools,
     "browser": browser_tools,
+    "vision": vision_tools,
 }
 
 

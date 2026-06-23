@@ -52,8 +52,15 @@ export function Settings() {
           <input defaultValue={cfg.embedding_model}
                  onBlur={(e) => save({ embedding_model: e.target.value })} />
         </label>
+        <label>Vision model <span className="dim">(for analyze_image; blank = use active model)</span>
+          <input defaultValue={cfg.vision_model}
+                 placeholder="e.g. openai:gpt-4o or anthropic:claude-sonnet-4-6"
+                 onBlur={(e) => save({ vision_model: e.target.value })} />
+        </label>
         <p className="dim">Providers: {(cfg.providers ?? []).join(", ")}</p>
       </div>
+
+      <ExecutionBackend execution={cfg.execution ?? {}} onSave={save} />
 
       <ModelsManager models={cfg.models ?? []} onSave={async (m) => { await save({ models: m }); reload(); }} />
 
@@ -139,6 +146,52 @@ export function Settings() {
       </div>
 
       <UpdatePanel />
+    </div>
+  );
+}
+
+function ExecutionBackend({ execution, onSave }:
+  { execution: Record<string, any>; onSave: (u: Record<string, any>) => void }) {
+  const backend = execution.backend ?? "local";
+  const docker = execution.docker ?? {};
+  const ssh = execution.ssh ?? {};
+  return (
+    <div className="card">
+      <h3>Execution backend</h3>
+      <p className="dim">Where <code>shell</code> &amp; <code>python_exec</code> run. The deny-list still applies on every backend.</p>
+      <label>Backend
+        <select defaultValue={backend} onChange={(e) => onSave({ execution: { backend: e.target.value } })}>
+          {["local", "docker", "ssh"].map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+      </label>
+      {backend === "docker" && (
+        <>
+          <label>Image
+            <input defaultValue={docker.image ?? "python:3.11-slim"}
+                   onBlur={(e) => onSave({ execution: { docker: { image: e.target.value } } })} />
+          </label>
+          <label>Container <span className="dim">(blank = ephemeral docker run)</span>
+            <input defaultValue={docker.container ?? ""}
+                   onBlur={(e) => onSave({ execution: { docker: { container: e.target.value } } })} />
+          </label>
+        </>
+      )}
+      {backend === "ssh" && (
+        <>
+          <label>Host
+            <input defaultValue={ssh.host ?? ""}
+                   onBlur={(e) => onSave({ execution: { ssh: { host: e.target.value } } })} />
+          </label>
+          <label>User
+            <input defaultValue={ssh.user ?? ""}
+                   onBlur={(e) => onSave({ execution: { ssh: { user: e.target.value } } })} />
+          </label>
+          <label>Key path
+            <input defaultValue={ssh.key_path ?? ""}
+                   onBlur={(e) => onSave({ execution: { ssh: { key_path: e.target.value } } })} />
+          </label>
+        </>
+      )}
     </div>
   );
 }

@@ -18,10 +18,16 @@ reflection_model: "ollama:llama3.1"
 # Embedding model used by the memory subsystem (local by default).
 embedding_model: "ollama:nomic-embed-text"
 
+# Vision model for the 'analyze_image' tool (seeing screenshots/images).
+# Empty = reuse `model` if it's vision-capable. Examples: openai:gpt-4o,
+# anthropic:claude-sonnet-4-6, ollama:llava.
+vision_model: ""
+
 agent:
   max_steps: 25            # max think→act iterations per task
   temperature: 0.7
   system_prompt: null      # null = use the built-in default prompt
+  provider_retries: 2      # retry transient provider errors (network/timeout/429)
 
 memory:
   enabled: true
@@ -59,6 +65,24 @@ tools:
     - web
     - gui
     - browser
+    - vision
+
+# ─── Execution backend for `shell` / `python_exec` ────────────────────
+# Where commands run. "local" = this machine (default). "docker" runs them
+# inside a container; "ssh" runs them on a remote host. Isolating execution
+# limits the agent's reach without changing any tool. The deny-list still
+# applies before dispatch on every backend.
+execution:
+  backend: local              # local | docker | ssh
+  docker:
+    image: "python:3.11-slim" # used when no long-lived container is set
+    container: ""             # name/id of a running container to `docker exec` into
+    workdir: "/work"
+  ssh:
+    host: ""
+    user: ""
+    key_path: ""              # path to a private key (optional)
+    port: 22
 
 skills:
   enabled: true
@@ -70,6 +94,15 @@ orchestrator:
   max_concurrent_agents: 3    # how many agents may run at the same time
   default_mode: auto          # "auto" (decompose a goal) or "manual" (named agents)
   enable_collab_tools: true   # give agents broadcast/send_message/read_inbox tools
+  max_task_retries: 2         # retry a failed subtask on transient errors
+  max_delegation_depth: 2     # how deep an agent may spawn sub-agents (delegate_task)
+
+# ─── Scheduler (recurring / timed agent jobs) ─────────────────────────
+# Define jobs in plain English ("every day at 9am") or 5-field cron (needs the
+# optional 'croniter' package). Jobs run unattended inside the server process.
+scheduler:
+  enabled: true
+  tick_seconds: 30            # how often the loop checks for due jobs
 
 # ─── Per-agent rights (role profiles) ─────────────────────────────────
 # Each role limits which tools an agent may use, its risk policy, the
@@ -83,7 +116,7 @@ roles:
     network: true
     max_steps: 30
   researcher:
-    allowed_tools: [web_search, web_fetch, read_file, list_dir,
+    allowed_tools: [web_search, web_fetch, read_file, list_dir, analyze_image,
                     broadcast, send_message, read_inbox, list_agents]
     policy: { low: auto, medium: confirm, high: deny, critical: deny }
     allowed_paths: []
@@ -97,7 +130,7 @@ roles:
     network: false
     max_steps: 25
   reviewer:
-    allowed_tools: [read_file, list_dir, web_search, web_fetch,
+    allowed_tools: [read_file, list_dir, web_search, web_fetch, analyze_image,
                     broadcast, send_message, read_inbox, list_agents]
     policy: { low: auto, medium: confirm, high: deny, critical: deny }
     allowed_paths: []

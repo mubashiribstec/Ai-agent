@@ -6,6 +6,7 @@ import {
 import { GenChoice, ModelBar } from "./ModelBar";
 import { MissionControl } from "./MissionControl";
 import { Settings } from "./Settings";
+import { Schedules } from "./Schedules";
 import { Guide } from "./Guide";
 
 interface LogLine {
@@ -14,12 +15,12 @@ interface LogLine {
   ok?: boolean;
 }
 
-type Tab = "chat" | "mission" | "settings" | "guide";
+type Tab = "chat" | "mission" | "schedules" | "settings" | "guide";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("chat");
   const tabs: [Tab, string][] = [
-    ["chat", "Chat"], ["mission", "Mission Control"],
+    ["chat", "Chat"], ["mission", "Mission Control"], ["schedules", "Schedules"],
     ["settings", "Settings"], ["guide", "Guide"],
   ];
   return (
@@ -34,6 +35,7 @@ export function App() {
       </nav>
       {tab === "chat" && <ChatView />}
       {tab === "mission" && <MissionControl />}
+      {tab === "schedules" && <Schedules />}
       {tab === "settings" && <Settings />}
       {tab === "guide" && <Guide />}
     </div>

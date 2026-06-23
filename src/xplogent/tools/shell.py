@@ -1,10 +1,10 @@
-"""Shell command execution."""
+"""Shell command execution (via the configured terminal backend)."""
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
+from xplogent.core.backends import TerminalBackend, resolve_backend
 from xplogent.safety.approval import RiskLevel
 from xplogent.tools.base import Tool, ToolResult
 
@@ -33,6 +33,9 @@ class ShellTool(Tool):
     }
     risk = RiskLevel.HIGH
 
+    def __init__(self, backend: TerminalBackend | None = None) -> None:
+        self._backend = backend
+
     def risk_for(self, arguments: dict[str, Any]) -> RiskLevel:
         cmd = str(arguments.get("command", "")).lower()
         if any(tok in cmd for tok in _DESTRUCTIVE):
@@ -49,27 +52,11 @@ class ShellTool(Tool):
         return RiskLevel.MEDIUM
 
     async def run(self, command: str, timeout: int = 120, cwd: str | None = None) -> ToolResult:
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except TimeoutError:
-                proc.kill()
-                return ToolResult.failure(f"Command timed out after {timeout}s")
-        except Exception as exc:  # noqa: BLE001
-            return ToolResult.failure(f"Failed to run command: {exc}")
-
-        out = stdout.decode("utf-8", "replace")
-        err = stderr.decode("utf-8", "replace")
-        code = proc.returncode or 0
+        backend = self._backend or resolve_backend()
+        code, out, err = await backend.run(command, timeout=timeout, cwd=cwd)
         body = out
         if err:
             body += ("\n[stderr]\n" + err)
         body = f"(exit {code})\n{body}".strip()
         return ToolResult(ok=code == 0, output=body, error="" if code == 0 else body,
-                          data={"exit_code": code})
+                          data={"exit_code": code, "backend": backend.name})

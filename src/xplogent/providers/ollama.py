@@ -23,7 +23,21 @@ from xplogent.providers.base import (
     ToolCall,
     ToolSpec,
     extract_gen_params,
+    image_data_uri,
 )
+
+
+def _to_ollama(messages: list[Message]) -> list[dict[str, Any]]:
+    """OpenAI-shaped messages, plus Ollama's native ``images`` (base64) field."""
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        payload = m.to_openai()
+        if m.images and m.role == Role.USER:
+            # Ollama wants plain text content + a separate base64 images list.
+            payload["content"] = m.content or ""
+            payload["images"] = [image_data_uri(img)[1] for img in m.images]
+        out.append(payload)
+    return out
 
 
 class OllamaProvider(Provider):
@@ -48,7 +62,7 @@ class OllamaProvider(Provider):
             options["num_predict"] = gen["max_tokens"]
         payload: dict[str, Any] = {
             "model": self.model,
-            "messages": [m.to_openai() for m in messages],
+            "messages": _to_ollama(messages),
             "stream": True,
             "options": options,
         }

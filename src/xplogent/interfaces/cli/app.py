@@ -412,8 +412,84 @@ def team(agent: list[str] = typer.Option(None, "--agent", "-a",
 
 memory_app = typer.Typer(help="Inspect memory.")
 skills_app = typer.Typer(help="Inspect learned skills.")
+schedule_app = typer.Typer(help="Schedule recurring / timed agent jobs.")
 app.add_typer(memory_app, name="memory")
 app.add_typer(skills_app, name="skills")
+app.add_typer(schedule_app, name="schedule")
+
+
+@schedule_app.command("add")
+def schedule_add(
+    when: str = typer.Argument(..., help='e.g. "every day at 9am" or a 5-field cron'),
+    prompt: str = typer.Argument(..., help="What the agent should do."),
+    mode: str = typer.Option("agent", help="agent | team"),
+    name: str = typer.Option("", help="Optional label."),
+    tz: str = typer.Option("", help="IANA timezone, e.g. Europe/London (default: local)."),
+) -> None:
+    """Add a scheduled job. Example:
+    xplogent schedule add "every day at 9am" "summarize my unread email"
+    """
+    import time
+
+    from xplogent.core.scheduler import parse_schedule
+
+    try:
+        spec, next_run = parse_schedule(when, tz)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    store = Store(load_config().db_path)
+    sid = store.add_schedule(name or prompt[:40], prompt, mode, spec, tz, next_run)
+    store.close()
+    console.print(f"[green]scheduled[/] #{sid} ({spec}) — next run "
+                  f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(next_run))}")
+
+
+@schedule_app.command("list")
+def schedule_list() -> None:
+    """List scheduled jobs."""
+    import time
+
+    store = Store(load_config().db_path)
+    jobs = store.list_schedules()
+    store.close()
+    if not jobs:
+        console.print("[dim]no schedules[/]")
+        return
+    table = Table(title="schedules")
+    table.add_column("id")
+    table.add_column("name")
+    table.add_column("spec")
+    table.add_column("on")
+    table.add_column("next run")
+    for j in jobs:
+        nxt = time.strftime("%Y-%m-%d %H:%M", time.localtime(j["next_run"])) if j["next_run"] else "—"
+        on = "[green]yes[/]" if j["enabled"] else "[dim]no[/]"
+        table.add_row(str(j["id"]), j["name"], j["spec"], on, nxt)
+    console.print(table)
+
+
+@schedule_app.command("remove")
+def schedule_remove(schedule_id: int) -> None:
+    """Delete a scheduled job by id."""
+    store = Store(load_config().db_path)
+    store.delete_schedule(schedule_id)
+    store.close()
+    console.print(f"[green]removed[/] #{schedule_id}")
+
+
+@schedule_app.command("toggle")
+def schedule_toggle(schedule_id: int) -> None:
+    """Enable/disable a scheduled job by id."""
+    store = Store(load_config().db_path)
+    job = store.get_schedule(schedule_id)
+    if not job:
+        console.print("[red]no such schedule[/]")
+        store.close()
+        raise typer.Exit(1)
+    store.set_schedule_enabled(schedule_id, not job["enabled"])
+    store.close()
+    console.print(f"[green]{'disabled' if job['enabled'] else 'enabled'}[/] #{schedule_id}")
 
 
 @memory_app.command("search")

@@ -22,8 +22,12 @@ to extend with plugins and MCP servers. It runs on **Windows and Linux** (and ma
 | **Deep monitoring** | Live per-agent telemetry, kanban task board, agent chatter, persisted run traces |
 | **Agent rights** | Per-agent role profiles: allowed tools, risk policy, filesystem path scope, network |
 | **PC control** | Shell, filesystem, Python, web, GUI (mouse/keyboard/screenshots), browser |
+| **Vision** | `analyze_image` sends screenshots to a vision model — the agent can *see* and act on what's on screen |
+| **Scheduling** | Natural-language cron ("every day at 9am") for unattended, recurring jobs that survive restarts |
+| **Sandboxing** | Run `shell`/`python_exec` locally, in **Docker**, or over **SSH** — swap backends without touching tools |
+| **Resilience** | Transient errors (network/timeout/429) auto-retry with backoff; agents can `delegate_task` to sub-agents |
 | **Safety** | Every risky action is risk-classified and gated (`auto` / `confirm` / `deny`) |
-| **Interfaces** | CLI/TUI, REST + WebSocket API, Web dashboard (Chat + Mission Control), Voice |
+| **Interfaces** | CLI/TUI, REST + WebSocket API, Web dashboard (Chat · Mission Control · Schedules), Voice |
 | **Extensible** | Drop-in Python plugins + MCP servers via one unified tool registry |
 
 ## Multi-agent teams

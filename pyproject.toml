@@ -51,6 +51,10 @@ voice = [
 mcp = [
     "mcp>=1.0",
 ]
+# Cron-expression schedules (natural-language schedules work without this)
+scheduler = [
+    "croniter>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -58,7 +62,7 @@ dev = [
     "mypy>=1.10",
 ]
 all = [
-    "xplogent[providers,control,memory,api,voice,mcp,dev]",
+    "xplogent[providers,control,memory,api,voice,mcp,scheduler,dev]",
 ]
 
 [project.scripts]

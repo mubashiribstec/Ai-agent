@@ -43,12 +43,15 @@ class Config:
     model: str = "ollama:llama3.1"
     reflection_model: str = "ollama:llama3.1"
     embedding_model: str = "ollama:nomic-embed-text"
+    vision_model: str = ""  # empty → use `model`; set to a vision-capable model
     agent: dict[str, Any] = field(default_factory=dict)
     memory: dict[str, Any] = field(default_factory=dict)
     safety: dict[str, Any] = field(default_factory=dict)
     tools: dict[str, Any] = field(default_factory=dict)
+    execution: dict[str, Any] = field(default_factory=dict)
     skills: dict[str, Any] = field(default_factory=dict)
     orchestrator: dict[str, Any] = field(default_factory=dict)
+    scheduler: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
     mcp: dict[str, Any] = field(default_factory=dict)
     models: list[dict[str, Any]] = field(default_factory=list)
@@ -168,12 +171,15 @@ def load_config(overrides: dict[str, Any] | None = None) -> Config:
         model=data.get("model", "ollama:llama3.1"),
         reflection_model=data.get("reflection_model", data.get("model", "ollama:llama3.1")),
         embedding_model=data.get("embedding_model", "ollama:nomic-embed-text"),
+        vision_model=data.get("vision_model", ""),
         agent=data.get("agent", {}),
         memory=data.get("memory", {}),
         safety=data.get("safety", {}),
         tools=data.get("tools", {}),
+        execution=data.get("execution", {}),
         skills=data.get("skills", {}),
         orchestrator=data.get("orchestrator", {}),
+        scheduler=data.get("scheduler", {}),
         roles=data.get("roles", {}),
         mcp=data.get("mcp", {}),
         models=data.get("models", []),

@@ -7,9 +7,14 @@ multi-agent runs.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from xplogent.core.messaging import MessageBus
 from xplogent.safety.approval import RiskLevel
 from xplogent.tools.base import Tool, ToolResult
+
+# Spawns a sub-agent: (task, role, depth) -> answer.
+DelegateCallback = Callable[[str, str, int], Awaitable[str]]
 
 
 class BroadcastTool(Tool):
@@ -90,10 +95,52 @@ class ListAgentsTool(Tool):
         return ToolResult.success("\n".join(f"{a['name']} ({a['role']})" for a in others))
 
 
-def collab_tools(bus: MessageBus, agent_id: str, agent_name: str) -> list[Tool]:
-    return [
+class DelegateTool(Tool):
+    name = "delegate_task"
+    description = (
+        "Spin up a focused helper agent to handle a self-contained subtask and "
+        "return its result. Use this to parallelize independent work or hand off a "
+        "specialized job (give it a clear, complete instruction)."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "task": {"type": "string", "description": "The complete instruction for the helper."},
+            "role": {"type": "string",
+                     "description": "Role profile for the helper (default 'operator')."},
+        },
+        "required": ["task"],
+    }
+    risk = RiskLevel.MEDIUM
+
+    def __init__(self, delegate: DelegateCallback, depth: int, max_depth: int) -> None:
+        self._delegate, self._depth, self._max = delegate, depth, max_depth
+
+    async def run(self, task: str, role: str = "operator") -> ToolResult:
+        if self._depth >= self._max:
+            return ToolResult.failure(
+                f"delegation depth limit reached ({self._max}); do this work yourself."
+            )
+        answer = await self._delegate(task, role, self._depth + 1)
+        return ToolResult.success(answer or "(helper returned no answer)")
+
+
+def collab_tools(
+    bus: MessageBus,
+    agent_id: str,
+    agent_name: str,
+    *,
+    delegate: DelegateCallback | None = None,
+    depth: int = 0,
+    max_depth: int = 2,
+) -> list[Tool]:
+    tools: list[Tool] = [
         BroadcastTool(bus, agent_id, agent_name),
         SendMessageTool(bus, agent_id, agent_name),
         ReadInboxTool(bus, agent_id, agent_name),
         ListAgentsTool(bus, agent_id, agent_name),
     ]
+    # Only offer delegation while there's still depth budget left.
+    if delegate is not None and depth < max_depth:
+        tools.append(DelegateTool(delegate, depth, max_depth))
+    return tools

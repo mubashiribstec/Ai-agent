@@ -8,11 +8,14 @@ translates to/from its native wire format.
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 
@@ -21,6 +24,21 @@ class Role(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
+
+
+def image_data_uri(path_or_uri: str) -> tuple[str, str]:
+    """Return ``(media_type, base64_data)`` for a local image path or data URI.
+
+    Accepts an existing ``data:`` URI (passed through) or a filesystem path,
+    which is read and base64-encoded. Used to feed images to vision-capable models.
+    """
+    if path_or_uri.startswith("data:"):
+        header, _, b64 = path_or_uri.partition(",")
+        media = header[len("data:"):].split(";", 1)[0] or "image/png"
+        return media, b64
+    p = Path(path_or_uri).expanduser()
+    media = mimetypes.guess_type(p.name)[0] or "image/png"
+    return media, base64.b64encode(p.read_bytes()).decode("ascii")
 
 
 @dataclass
@@ -41,12 +59,24 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None  # set on TOOL messages
     name: str | None = None          # tool name on TOOL messages
+    images: list[str] = field(default_factory=list)  # image paths/data-URIs (vision)
 
     def to_openai(self) -> dict[str, Any]:
         msg: dict[str, Any] = {"role": self.role.value}
         if self.role == Role.TOOL:
             msg["content"] = self.content
             msg["tool_call_id"] = self.tool_call_id or ""
+            return msg
+        # Multimodal: a USER message carrying images becomes a content-parts list.
+        if self.images and self.role == Role.USER:
+            parts: list[dict[str, Any]] = []
+            if self.content:
+                parts.append({"type": "text", "text": self.content})
+            for img in self.images:
+                media, b64 = image_data_uri(img)
+                parts.append({"type": "image_url",
+                              "image_url": {"url": f"data:{media};base64,{b64}"}})
+            msg["content"] = parts
             return msg
         msg["content"] = self.content or ""
         if self.tool_calls:

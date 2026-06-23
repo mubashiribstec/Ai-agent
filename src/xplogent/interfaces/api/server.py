@@ -75,6 +75,13 @@ def create_app():
     class FactBody(BaseModel):
         content: str
 
+    class ScheduleBody(BaseModel):
+        name: str = ""
+        prompt: str
+        schedule: str           # e.g. "every day at 9am" or a 5-field cron
+        mode: str = "agent"     # "agent" | "team"
+        tz: str = ""
+
     # Live multi-agent runs, keyed by run_id, for monitoring + control.
     active_runs: dict[str, dict] = {}
 
@@ -360,9 +367,11 @@ def create_app():
             "model": cfg.model,
             "reflection_model": cfg.reflection_model,
             "embedding_model": cfg.embedding_model,
+            "vision_model": cfg.vision_model,
             "memory": cfg.memory,
             "safety": cfg.safety,
             "orchestrator": cfg.orchestrator,
+            "execution": cfg.execution,
             "roles": cfg.roles,
             "mcp": cfg.mcp,
             "tools_enabled": cfg.tools.get("enabled", []),
@@ -438,6 +447,66 @@ def create_app():
         store.delete_skill(name)
         store.close()
         return {"ok": True}
+
+    # ── Scheduler (recurring / timed jobs) ───────────────────────────────────
+    @app.get("/schedules")
+    async def list_schedules() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_schedules()
+        store.close()
+        return {"schedules": out}
+
+    @app.post("/schedules")
+    async def add_schedule(body: ScheduleBody) -> dict:
+        from xplogent.core.scheduler import parse_schedule
+
+        try:
+            spec, next_run = parse_schedule(body.schedule, body.tz)
+        except ValueError as exc:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        store = Store(load_config().db_path)
+        sid = store.add_schedule(body.name or body.prompt[:40], body.prompt,
+                                 body.mode, spec, body.tz, next_run)
+        store.close()
+        return {"ok": True, "id": sid, "spec": spec, "next_run": next_run}
+
+    @app.post("/schedules/{schedule_id}/toggle")
+    async def toggle_schedule(schedule_id: int) -> dict:
+        store = Store(load_config().db_path)
+        job = store.get_schedule(schedule_id)
+        if not job:
+            store.close()
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="no such schedule")
+        store.set_schedule_enabled(schedule_id, not job["enabled"])
+        store.close()
+        return {"ok": True, "enabled": not job["enabled"]}
+
+    @app.delete("/schedules/{schedule_id}")
+    async def delete_schedule(schedule_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_schedule(schedule_id)
+        store.close()
+        return {"ok": True}
+
+    # Start the scheduler loop alongside the server (if enabled).
+    @app.on_event("startup")
+    async def _start_scheduler() -> None:
+        cfg = load_config()
+        if not cfg.scheduler.get("enabled", True):
+            return
+        from xplogent.core.scheduler import Scheduler
+
+        sched = Scheduler(cfg, tick=float(cfg.scheduler.get("tick_seconds", 30)))
+        await sched.start()
+        app.state.scheduler = sched
+
+    @app.on_event("shutdown")
+    async def _stop_scheduler() -> None:
+        sched = getattr(app.state, "scheduler", None)
+        if sched is not None:
+            await sched.stop()
 
     # ── One-click update ─────────────────────────────────────────────────────
     @app.get("/update/check")

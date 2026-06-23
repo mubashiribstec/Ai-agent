@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS agent_messages (
     content TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    prompt TEXT,
+    mode TEXT,
+    spec TEXT,
+    tz TEXT,
+    enabled INTEGER DEFAULT 1,
+    next_run REAL,
+    last_run REAL,
+    last_status TEXT,
+    created_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 """
@@ -103,9 +116,32 @@ class Store:
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
+        self._fts = False
         with self._lock:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.executescript(_SCHEMA)
+            self.conn.commit()
+            self._init_fts()
+
+    def _init_fts(self) -> None:
+        """Best-effort full-text index over message content (FTS5 may be absent)."""
+        try:
+            self.conn.executescript(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5("
+                "content, session_id UNINDEXED, role UNINDEXED);"
+            )
+            self.conn.commit()
+            self._fts = True
+        except sqlite3.OperationalError:
+            self._fts = False
+            return
+        # Backfill once if the index is empty but messages already exist.
+        have = self.conn.execute("SELECT COUNT(*) FROM messages_fts").fetchone()[0]
+        if not have and self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]:
+            self.conn.execute(
+                "INSERT INTO messages_fts (rowid, content, session_id, role) "
+                "SELECT id, content, session_id, role FROM messages"
+            )
             self.conn.commit()
 
     def _write(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
@@ -147,13 +183,20 @@ class Store:
     def delete_session(self, session_id: int) -> None:
         self._write("DELETE FROM messages WHERE session_id=?", (session_id,))
         self._write("DELETE FROM sessions WHERE id=?", (session_id,))
+        if self._fts:
+            self._write("DELETE FROM messages_fts WHERE session_id=?", (session_id,))
 
     # -- messages --------------------------------------------------------------
     def add_message(self, session_id: int, role: str, content: str) -> None:
-        self._write(
+        cur = self._write(
             "INSERT INTO messages (session_id, role, content, created_at) VALUES (?,?,?,?)",
             (session_id, role, content, time.time()),
         )
+        if self._fts:
+            self._write(
+                "INSERT INTO messages_fts (rowid, content, session_id, role) VALUES (?,?,?,?)",
+                (int(cur.lastrowid), content, session_id, role),
+            )
 
     def session_messages(self, session_id: int) -> list[dict[str, Any]]:
         rows = self._query(
@@ -163,6 +206,22 @@ class Store:
         return [dict(r) for r in rows]
 
     def search_messages(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        """Full-text ranked search (FTS5) with a LIKE fallback when unavailable."""
+        if self._fts and query.strip():
+            # Require each term (quoted, AND-ed); bm25 ranks best matches first (lower=better).
+            terms = [t for t in query.replace('"', " ").split() if t]
+            match = " ".join(f'"{t}"' for t in terms)
+            if not match:
+                match = '"' + query.strip() + '"'
+            try:
+                rows = self._query(
+                    "SELECT session_id, role, content FROM messages_fts "
+                    "WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts) LIMIT ?",
+                    (match, limit),
+                )
+                return [dict(r) for r in rows]
+            except sqlite3.OperationalError:
+                pass  # malformed query → fall back to LIKE
         rows = self._query(
             "SELECT session_id, role, content FROM messages WHERE content LIKE ? "
             "ORDER BY id DESC LIMIT ?",
@@ -276,6 +335,46 @@ class Store:
                 "SELECT * FROM agent_messages ORDER BY id DESC LIMIT ?", (limit,)
             )
         return [dict(r) for r in rows]
+
+    # -- schedules (recurring / timed agent jobs) ------------------------------
+    def add_schedule(self, name: str, prompt: str, mode: str, spec: str,
+                     tz: str, next_run: float) -> int:
+        cur = self._write(
+            "INSERT INTO schedules (name, prompt, mode, spec, tz, enabled, "
+            "next_run, last_run, last_status, created_at) VALUES (?,?,?,?,?,1,?,?,?,?)",
+            (name, prompt, mode, spec, tz, next_run, None, None, time.time()),
+        )
+        return int(cur.lastrowid)
+
+    def list_schedules(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT * FROM schedules ORDER BY id DESC")]
+
+    def get_schedule(self, schedule_id: int) -> dict[str, Any] | None:
+        rows = self._query("SELECT * FROM schedules WHERE id=?", (schedule_id,))
+        return dict(rows[0]) if rows else None
+
+    def due_schedules(self, now: float) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT * FROM schedules WHERE enabled=1 AND next_run IS NOT NULL "
+            "AND next_run<=? ORDER BY next_run", (now,))]
+
+    def set_schedule_run(self, schedule_id: int, last_run: float | None,
+                         last_status: str, next_run: float | None) -> None:
+        self._write(
+            "UPDATE schedules SET last_run=?, last_status=?, next_run=? WHERE id=?",
+            (last_run, last_status, next_run, schedule_id),
+        )
+
+    def set_schedule_next(self, schedule_id: int, next_run: float | None) -> None:
+        self._write("UPDATE schedules SET next_run=? WHERE id=?", (next_run, schedule_id))
+
+    def set_schedule_enabled(self, schedule_id: int, enabled: bool) -> None:
+        self._write("UPDATE schedules SET enabled=? WHERE id=?",
+                    (1 if enabled else 0, schedule_id))
+
+    def delete_schedule(self, schedule_id: int) -> None:
+        self._write("DELETE FROM schedules WHERE id=?", (schedule_id,))
 
     def close(self) -> None:
         with self._lock:
