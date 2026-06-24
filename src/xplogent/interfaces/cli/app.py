@@ -593,6 +593,61 @@ def skills_list() -> None:
     store.close()
 
 
+@skills_app.command("packs")
+def skills_packs() -> None:
+    """List the bundled starter skill packs you can install."""
+    from xplogent.skills.hub import list_bundled
+
+    packs = list_bundled()
+    if not packs:
+        console.print("[dim]no bundled packs found[/]")
+        return
+    for p in packs:
+        console.print(f"[magenta]{p['name']}[/] — {p['description']}")
+
+
+@skills_app.command("install")
+def skills_install(src: str) -> None:
+    """Install a skill pack from a bundled name, a path, or an http(s) URL."""
+    from xplogent.memory.manager import MemoryManager
+    from xplogent.memory.vector import Embedder
+    from xplogent.providers.registry import build_provider
+    from xplogent.skills.hub import install_pack
+
+    cfg = load_config()
+    store = Store(cfg.db_path)
+
+    async def _go() -> dict:
+        ep = build_provider(cfg.embedding_model)
+        mem = MemoryManager(store, Embedder(ep))
+        try:
+            return await install_pack(src, mem)
+        finally:
+            await ep.aclose()
+            store.close()
+
+    res = asyncio.run(_go())
+    if res.get("ok"):
+        console.print(f"[green]installed[/] {', '.join(res['installed'])}")
+    else:
+        console.print(f"[red]{res.get('error')}[/]")
+
+
+@skills_app.command("new")
+def skills_new(name: str) -> None:
+    """Scaffold a new SKILL.md you can edit."""
+    from pathlib import Path
+
+    from xplogent.skills.pack import render_skill_md
+
+    cfg = load_config()
+    md = render_skill_md(name, "one sentence: when to use this skill",
+                         "1. first step\n2. second step", tools=[], trigger="when ...")
+    path: Path = cfg.skills_dir / f"{name}.md"
+    path.write_text(md, encoding="utf-8")
+    console.print(f"[green]scaffolded[/] {path}")
+
+
 # ── small utilities ───────────────────────────────────────────────────────────
 def _print_skills(store: Store | None) -> None:
     if store is None:

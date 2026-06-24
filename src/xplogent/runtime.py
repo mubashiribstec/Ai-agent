@@ -60,6 +60,11 @@ def build_runtime(
     provider = build_provider(model or config.model)
     tools = ToolRegistry.from_config(config.tools.get("enabled"))
     load_plugins(tools)  # drop-in plugins extend the same registry
+    # Live Canvas needs the event bus to push HTML to the dashboard, so it's wired
+    # here rather than via the zero-arg builtin tool groups.
+    if config.raw.get("canvas", {}).get("enabled", True):
+        from xplogent.tools.canvas import CanvasTool
+        tools.register(CanvasTool(bus))
     safety = SafetyManager.from_config(config.safety)
 
     # Optionally scope this runtime to a role profile (used by the MCP server).

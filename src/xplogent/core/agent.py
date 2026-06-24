@@ -135,11 +135,14 @@ class Agent:
         if self.memory:
             facts = await self.memory.recall(task, k=int(self.config.memory.get("retrieval_top_k", 5)))
             relevant = await self.memory.relevant_skills(task, k=3)
-            skills = [(s.name, s.description, s.body) for s in relevant]
+            skills = [(s.name, s.description, s.body, s.trigger, s.tools) for s in relevant]
             self._recalled_skills.update(s.name for s in relevant)
             if facts or skills:
                 await self._emit(EventType.MEMORY, facts=len(facts), skills=len(skills))
-        system = build_system_prompt(self.config.agent.get("system_prompt"), facts, skills)
+        system = build_system_prompt(
+            self.config.agent.get("system_prompt"), facts, skills,
+            persona=getattr(self, "_persona", ""), memory_md=getattr(self, "_memory_md", ""),
+        )
         return [Message(role=Role.SYSTEM, content=system), *self.stm.render()]
 
     async def run(self, task: str, images: list[str] | None = None) -> str:
@@ -148,6 +151,10 @@ class Agent:
         ``images`` are file paths / data-URIs attached to the first user message so a
         vision-capable model can see them (ignored by text-only models).
         """
+        # Load the file-first identity once per run (SOUL.md + curated MEMORY.md).
+        from xplogent.core.persona import load_memory, load_soul
+        self._persona = load_soul()
+        self._memory_md = load_memory()
         await self._emit(EventType.RUN_START, task=task)
         await self._set_status("running")
         self.stm.add(Message(role=Role.USER, content=task, images=images or []))
@@ -206,7 +213,23 @@ class Agent:
         await self._set_status("done")
         await self._emit(EventType.RUN_END, answer=final_answer)
         await self._post_task(task, "\n".join(transcript), tool_steps)
+        await self._maybe_compact_memory()
         return final_answer
+
+    async def _maybe_compact_memory(self) -> None:
+        """Periodically distill MEMORY.md from history (off by default)."""
+        n = int(self.config.memory.get("auto_compact_every", 0) or 0)
+        if n <= 0 or not self.memory:
+            return
+        self._run_count = getattr(self, "_run_count", 0) + 1
+        if self._run_count % n != 0:
+            return
+        from xplogent.core.persona import compact_memory
+        provider = self.reflector.provider if self.reflector else self.provider
+        try:
+            await compact_memory(self.memory.store, provider)
+        except Exception:  # noqa: BLE001 - never break a run on compaction
+            pass
 
     def _record_skill_outcomes(self, final_answer: str) -> None:
         """Credit/penalize the skills recalled this run by how it ended."""

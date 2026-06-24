@@ -9,7 +9,7 @@ Also stores and retrieves **skills** (used by the self-improvement subsystem).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from xplogent.memory.store import SkillRow, Store
 from xplogent.memory.vector import Embedder, cosine, top_k
@@ -21,6 +21,8 @@ class RetrievedSkill:
     description: str
     body: str
     score: float
+    trigger: str = ""
+    tools: list[str] = field(default_factory=list)
 
 
 class MemoryManager:
@@ -76,9 +78,12 @@ class MemoryManager:
         return self.store.search_messages(query, limit)
 
     # -- skills ----------------------------------------------------------------
-    async def save_skill(self, name: str, description: str, body: str) -> None:
-        vec = await self.embedder.embed_one(f"{name}: {description}")
-        self.store.upsert_skill(name, description, body, vec, embed_model=self.embed_model)
+    async def save_skill(self, name: str, description: str, body: str,
+                         tools: list[str] | None = None, trigger: str = "",
+                         source: str = "learned") -> None:
+        vec = await self.embedder.embed_one(f"{name}: {description} {trigger}")
+        self.store.upsert_skill(name, description, body, vec, embed_model=self.embed_model,
+                                tools=tools, trigger=trigger, source=source)
 
     async def relevant_skills(self, query: str, k: int = 3) -> list[RetrievedSkill]:
         skills: list[SkillRow] = self.store.all_skills()
@@ -98,7 +103,8 @@ class MemoryManager:
         out = []
         for s, score in picked:
             self.store.increment_skill_use(s.name)  # type: ignore[attr-defined]
-            out.append(RetrievedSkill(s.name, s.description, s.body, score))  # type: ignore[attr-defined]
+            out.append(RetrievedSkill(s.name, s.description, s.body, score,  # type: ignore[attr-defined]
+                                      trigger=s.trigger, tools=s.tools))
         return out
 
     def list_skills(self) -> list[SkillRow]:

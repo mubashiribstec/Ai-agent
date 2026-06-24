@@ -27,15 +27,30 @@ def _approx_tokens(text: str) -> int:
 def build_system_prompt(
     base: str | None,
     facts: list[str],
-    skills: list[tuple[str, str, str]],  # (name, description, body)
+    skills: list[tuple],  # (name, description, body[, trigger, tools])
+    persona: str = "",
+    memory_md: str = "",
 ) -> str:
-    parts = [base or DEFAULT_SYSTEM_PROMPT]
+    parts: list[str] = []
+    if persona.strip():
+        parts.append(persona.strip())
+    parts.append(base or DEFAULT_SYSTEM_PROMPT)
+    if memory_md.strip():
+        parts.append("## Curated memory (MEMORY.md)\n" + memory_md.strip())
     if facts:
         parts.append("## What you remember\n" + "\n".join(f"- {f}" for f in facts))
     if skills:
         skill_block = ["## Learned skills (apply when relevant)"]
-        for name, desc, body in skills:
-            skill_block.append(f"### {name}\n{desc}\n{body}")
+        for s in skills:
+            name, desc, body = s[0], s[1], s[2]
+            trigger = s[3] if len(s) > 3 else ""
+            tools = s[4] if len(s) > 4 else []
+            head = f"### {name}\n{desc}"
+            if trigger:
+                head += f"\n_When:_ {trigger}"
+            if tools:
+                head += f"\n_Uses tools:_ {', '.join(tools)}"
+            skill_block.append(f"{head}\n{body}")
         parts.append("\n".join(skill_block))
     return "\n\n".join(parts)
 

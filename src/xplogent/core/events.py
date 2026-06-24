@@ -33,6 +33,8 @@ class EventType(StrEnum):
     SKILL = "skill"
     # token accounting / context window
     USAGE = "usage"
+    # agent-rendered visual workspace
+    CANVAS = "canvas"
     # multi-agent
     AGENT_SPAWN = "agent_spawn"      # a worker started
     AGENT_STATUS = "agent_status"    # status change (running/paused/done/cancelled)

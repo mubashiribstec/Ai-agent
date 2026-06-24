@@ -15,7 +15,7 @@ import json
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +124,9 @@ class SkillRow:
     failures: int = 0
     last_used: float | None = None
     embed_model: str = ""
+    tools: list[str] = field(default_factory=list)
+    trigger: str = ""
+    source: str = ""
 
     @property
     def level(self) -> str:
@@ -159,6 +162,9 @@ class Store:
             ("skills", "successes", "INTEGER DEFAULT 0"),
             ("skills", "failures", "INTEGER DEFAULT 0"),
             ("skills", "last_used", "REAL"),
+            ("skills", "tools", "TEXT DEFAULT ''"),     # JSON list of required tools
+            ("skills", "trigger", "TEXT DEFAULT ''"),   # when to use this skill
+            ("skills", "source", "TEXT DEFAULT ''"),    # learned | installed | pack id
         ]
         for table, col, ddl in adds:
             if col not in cols(table):
@@ -298,27 +304,30 @@ class Store:
 
     # -- skills ----------------------------------------------------------------
     def upsert_skill(self, name: str, description: str, body: str,
-                     embedding: list[float], embed_model: str = "") -> None:
+                     embedding: list[float], embed_model: str = "",
+                     tools: list[str] | None = None, trigger: str = "",
+                     source: str = "") -> None:
         self._write(
-            "INSERT INTO skills (name, description, body, embedding, uses, created_at, embed_model) "
-            "VALUES (?,?,?,?,0,?,?) "
+            "INSERT INTO skills (name, description, body, embedding, uses, created_at, "
+            "embed_model, tools, trigger, source) VALUES (?,?,?,?,0,?,?,?,?,?) "
             "ON CONFLICT(name) DO UPDATE SET description=excluded.description, "
-            "body=excluded.body, embedding=excluded.embedding, embed_model=excluded.embed_model",
-            (name, description, body, json.dumps(embedding), time.time(), embed_model),
+            "body=excluded.body, embedding=excluded.embedding, embed_model=excluded.embed_model, "
+            "tools=excluded.tools, trigger=excluded.trigger, source=excluded.source",
+            (name, description, body, json.dumps(embedding), time.time(), embed_model,
+             json.dumps(tools or []), trigger, source),
         )
 
     def all_skills(self) -> list[SkillRow]:
-        rows = self._query("SELECT * FROM skills")
         out = []
-        for r in rows:
-            keys = r.keys()
+        for row in self._query("SELECT * FROM skills"):
+            r = dict(row)
             out.append(SkillRow(
                 r["id"], r["name"], r["description"], r["body"],
-                json.loads(r["embedding"] or "[]"), r["uses"],
-                successes=r["successes"] if "successes" in keys else 0,
-                failures=r["failures"] if "failures" in keys else 0,
-                last_used=r["last_used"] if "last_used" in keys else None,
-                embed_model=r["embed_model"] if "embed_model" in keys else "",
+                json.loads(r.get("embedding") or "[]"), r["uses"],
+                successes=r.get("successes", 0) or 0, failures=r.get("failures", 0) or 0,
+                last_used=r.get("last_used"), embed_model=r.get("embed_model") or "",
+                tools=json.loads(r.get("tools") or "[]"),
+                trigger=r.get("trigger") or "", source=r.get("source") or "",
             ))
         return out
 

@@ -36,7 +36,7 @@ class SkillManager:
         return {"facts": len(result.facts), "skill": skill_name}
 
     def _write_markdown(self, name: str, description: str, body: str) -> None:
+        from xplogent.skills.pack import render_skill_md
+
         path = self.skills_dir / f"{name}.md"
-        path.write_text(
-            f"# {name}\n\n> {description}\n\n{body}\n", encoding="utf-8"
-        )
+        path.write_text(render_skill_md(name, description, body), encoding="utf-8")

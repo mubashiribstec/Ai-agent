@@ -95,6 +95,9 @@ def create_app():
     class FactBody(BaseModel):
         content: str
 
+    class TextBody(BaseModel):
+        content: str = ""
+
     class ScheduleBody(BaseModel):
         name: str = ""
         prompt: str
@@ -169,8 +172,8 @@ def create_app():
         store = Store(cfg.db_path)
         out = [
             {"name": s.name, "description": s.description, "uses": s.uses,
-             "level": s.level, "stars": s.stars,
-             "successes": s.successes, "failures": s.failures}
+             "level": s.level, "stars": s.stars, "successes": s.successes,
+             "failures": s.failures, "trigger": s.trigger, "source": s.source}
             for s in store.all_skills()
         ]
         store.close()
@@ -590,6 +593,32 @@ def create_app():
         store.close()
         return {"ok": True}
 
+    @app.get("/skills/library")
+    async def skills_library() -> dict:
+        from xplogent.skills.hub import list_bundled
+        return {"packs": list_bundled()}
+
+    @app.post("/skills/install")
+    async def skills_install(body: dict) -> dict:
+        from xplogent.skills.hub import install_pack, install_text
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        embed_provider = build_provider(cfg.embedding_model)
+        mem = MemoryManager(store, Embedder(embed_provider))
+        try:
+            if body.get("skill_md"):
+                res = await install_text(str(body["skill_md"]), mem)
+            elif body.get("src"):
+                res = await install_pack(str(body["src"]), mem)
+            else:
+                res = {"ok": False, "error": "provide 'src' (path/url/pack) or 'skill_md'"}
+        except Exception as exc:  # noqa: BLE001
+            res = {"ok": False, "error": str(exc)}
+        finally:
+            await embed_provider.aclose()
+            store.close()
+        return res
+
     # ── Scheduler (recurring / timed jobs) ───────────────────────────────────
     @app.get("/schedules")
     async def list_schedules() -> dict:
@@ -631,6 +660,42 @@ def create_app():
         store.delete_schedule(schedule_id)
         store.close()
         return {"ok": True}
+
+    # ── Persona (SOUL.md) + curated memory (MEMORY.md) ───────────────────────
+    @app.get("/persona/soul")
+    async def get_soul() -> dict:
+        from xplogent.core.persona import load_soul
+        return {"content": load_soul()}
+
+    @app.put("/persona/soul")
+    async def put_soul(body: TextBody) -> dict:
+        from xplogent.core.persona import save_soul
+        save_soul(body.content)
+        return {"ok": True}
+
+    @app.get("/persona/memory")
+    async def get_memory_md() -> dict:
+        from xplogent.core.persona import load_memory
+        return {"content": load_memory()}
+
+    @app.put("/persona/memory")
+    async def put_memory_md(body: TextBody) -> dict:
+        from xplogent.core.persona import save_memory
+        save_memory(body.content)
+        return {"ok": True}
+
+    @app.post("/memory/compact")
+    async def memory_compact() -> dict:
+        from xplogent.core.persona import compact_memory
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        provider = build_provider(cfg.reflection_model)
+        try:
+            content = await compact_memory(store, provider)
+        finally:
+            await provider.aclose()
+            store.close()
+        return {"ok": True, "content": content}
 
     # ── Backup / restore + knowledge export/import ───────────────────────────
     @app.get("/backup")

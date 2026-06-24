@@ -7,6 +7,7 @@ import { useIsMobile } from "./hooks/useMediaQuery";
 import { getSessions, getStatus } from "./api";
 import { Chat } from "./views/Chat";
 import { Runs } from "./views/Runs";
+import { Persona } from "./views/Persona";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -84,6 +85,7 @@ export function App() {
         {tab === "council" && <Council />}
         {tab === "mission" && <MissionControl />}
         {tab === "runs" && <Runs />}
+        {tab === "persona" && <Persona />}
         {tab === "schedules" && <Schedules />}
         {tab === "settings" && <Settings />}
         {tab === "guide" && <Guide />}

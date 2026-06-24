@@ -158,6 +158,32 @@ export async function deleteSkill(name: string) {
   await fetch(`/skills/${name}`, { method: "DELETE" });
 }
 
+// ── Persona (SOUL.md) + curated memory (MEMORY.md) ────────────────────────────
+export async function getSoul(): Promise<{ content: string }> {
+  return (await fetch("/persona/soul")).json();
+}
+export async function putSoul(content: string) {
+  await fetch("/persona/soul", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
+}
+export async function getMemoryMd(): Promise<{ content: string }> {
+  return (await fetch("/persona/memory")).json();
+}
+export async function putMemoryMd(content: string) {
+  await fetch("/persona/memory", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
+}
+export async function compactMemory(): Promise<{ ok: boolean; content?: string }> {
+  return (await fetch("/memory/compact", { method: "POST" })).json();
+}
+
+// ── Skills hub ────────────────────────────────────────────────────────────────
+export interface SkillPack { name: string; description: string; trigger: string; tools: string[]; path?: string; }
+export async function getSkillLibrary(): Promise<{ packs: SkillPack[] }> {
+  return (await fetch("/skills/library")).json();
+}
+export async function installSkill(body: { src?: string; skill_md?: string }): Promise<any> {
+  return (await fetch("/skills/install", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 export async function checkUpdate(): Promise<Record<string, any>> {
   return (await fetch("/update/check")).json();
