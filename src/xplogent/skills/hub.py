@@ -3,6 +3,7 @@ a local path, or an http(s) URL. ClawHub-style, but local-first."""
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,11 @@ _log = get_logger("skills.hub")
 
 
 def library_dir() -> Path | None:
-    root = install_root()
+    """The starter skill library, shipped inside the package (works for all installs)."""
+    packaged = Path(__file__).resolve().parent.parent / "skills_library"
+    if packaged.is_dir():
+        return packaged
+    root = install_root()  # dev/editable fallback
     d = (root / "skills_library") if root else None
     return d if (d and d.is_dir()) else None
 
@@ -67,7 +72,7 @@ async def install_text(skill_md: str, memory: MemoryManager) -> dict[str, Any]:
 
 async def install_pack(src: str, memory: MemoryManager) -> dict[str, Any]:
     """Install one or many skills from a URL, path, or bundled pack name."""
-    texts = _collect(src)
+    texts = await asyncio.to_thread(_collect, src)  # URL fetch / file IO off the loop
     installed: list[str] = []
     for text in texts:
         meta = parse_skill_md(text)

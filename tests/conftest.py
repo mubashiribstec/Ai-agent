@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+import pytest
+
 from xplogent.providers.base import (
     Message,
     Provider,
@@ -12,6 +14,17 @@ from xplogent.providers.base import (
     StreamKind,
     ToolSpec,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data(tmp_path_factory, monkeypatch):
+    """Point every test at a throwaway data dir so nothing touches the real
+    install/home (SOUL.md, MEMORY.md, the DB) or triggers legacy migration.
+
+    Tests that set XPLOGENT_HOME or delenv it still override this (later wins)."""
+    home = tmp_path_factory.mktemp("xph")
+    monkeypatch.setenv("XPLOGENT_HOME", str(home))
+    monkeypatch.setattr("xplogent.core.config._migrated", True, raising=False)
 
 
 class ScriptedProvider(Provider):
