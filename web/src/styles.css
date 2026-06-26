@@ -450,3 +450,27 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 /* legacy single toast (Settings save flash) */
 .toast { position: fixed; top: 70px; right: 20px; background: var(--green); color: #04260f;
   padding: 9px 15px; border-radius: var(--r2); font-weight: 600; z-index: 100; box-shadow: var(--shadow-2); }
+
+/* ── Analytics ──────────────────────────────────────────────────────────── */
+.grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--s3); }
+.stat { display: flex; flex-direction: column; }
+.chart { width: 100%; height: auto; }
+.chart .axis { stroke: var(--border-strong); stroke-width: 1; }
+.chart .bar-in { fill: var(--accent); }
+.chart .bar-out { fill: var(--magenta); }
+.chart .tick { fill: var(--dim); font-size: 11px; font-family: var(--mono); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 8px; vertical-align: middle; }
+.swatch.in { background: var(--accent); } .swatch.out { background: var(--magenta); }
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--fz-sm); }
+.data-table th { text-align: left; color: var(--dim); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.data-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.data-table tr:last-child td { border-bottom: none; }
+
+/* ── Evals ──────────────────────────────────────────────────────────────── */
+.spark { width: 120px; height: 28px; }
+.spark path { stroke: var(--accent); stroke-width: 2; }
+.spark circle { fill: var(--accent); }
+.eval-cases { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.ok-i { color: var(--green); flex-shrink: 0; } .bad-i { color: var(--red); flex-shrink: 0; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lbl-sm { display: block; font-size: var(--fz-sm); color: var(--dim); margin-bottom: 5px; }

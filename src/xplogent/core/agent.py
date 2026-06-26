@@ -280,7 +280,14 @@ class Agent:
             ot = assistant.usage.get("output_tokens", 0)
             self.session_tokens["input"] += it
             self.session_tokens["output"] += ot
-            self.session_cost += estimate_cost(model_spec, it, ot)
+            turn_cost = estimate_cost(model_spec, it, ot)
+            self.session_cost += turn_cost
+            if self.memory:
+                try:
+                    self.memory.store.add_usage(
+                        model_spec, it, ot, turn_cost, self.memory.session_id)
+                except Exception:  # noqa: BLE001 - usage logging must never break a turn
+                    pass
             data.update({
                 "input_tokens": it, "output_tokens": ot,
                 "session_input": self.session_tokens["input"],

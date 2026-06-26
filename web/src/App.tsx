@@ -9,6 +9,8 @@ import { Chat } from "./views/Chat";
 import { Runs } from "./views/Runs";
 import { Persona } from "./views/Persona";
 import { Knowledge } from "./views/Knowledge";
+import { Analytics } from "./views/Analytics";
+import { Evals } from "./views/Evals";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -87,6 +89,8 @@ export function App() {
         {tab === "mission" && <MissionControl />}
         {tab === "runs" && <Runs />}
         {tab === "knowledge" && <Knowledge />}
+        {tab === "analytics" && <Analytics />}
+        {tab === "evals" && <Evals />}
         {tab === "persona" && <Persona />}
         {tab === "schedules" && <Schedules />}
         {tab === "settings" && <Settings />}

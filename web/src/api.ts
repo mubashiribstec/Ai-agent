@@ -190,6 +190,40 @@ export async function deleteDoc(id: number) {
   await fetch(`/docs/${id}`, { method: "DELETE" });
 }
 
+// ── Analytics ─────────────────────────────────────────────────────────────────
+export interface UsageBucket {
+  input_tokens: number; output_tokens: number; cost: number; turns: number;
+  day?: string; model?: string;
+}
+export interface Analytics {
+  totals: UsageBucket;
+  by_day: UsageBucket[];
+  by_model: UsageBucket[];
+}
+export async function getAnalytics(days = 30): Promise<Analytics> {
+  return (await fetch(`/analytics?days=${days}`)).json();
+}
+
+// ── Evals ─────────────────────────────────────────────────────────────────────
+export interface EvalCase { id?: number; prompt: string; criteria: string; }
+export interface EvalRun { passed: number; total: number; score: number; model: string; created_at: number; }
+export interface EvalSuite {
+  id: number; name: string; description: string;
+  cases: EvalCase[]; runs: EvalRun[];
+}
+export async function getEvals(): Promise<{ evals: EvalSuite[] }> {
+  return (await fetch("/evals")).json();
+}
+export async function saveEval(body: { id?: number; name: string; description?: string; cases: EvalCase[] }): Promise<any> {
+  return (await fetch("/evals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
+export async function runEval(id: number): Promise<any> {
+  return (await fetch(`/evals/${id}/run`, { method: "POST" })).json();
+}
+export async function deleteEval(id: number) {
+  await fetch(`/evals/${id}`, { method: "DELETE" });
+}
+
 // ── Skills hub ────────────────────────────────────────────────────────────────
 export interface SkillPack { name: string; description: string; trigger: string; tools: string[]; path?: string; }
 export async function getSkillLibrary(): Promise<{ packs: SkillPack[] }> {

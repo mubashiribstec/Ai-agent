@@ -111,9 +111,34 @@ CREATE TABLE IF NOT EXISTS usage (
     session_id INTEGER,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS evals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    description TEXT,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS eval_cases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eval_id INTEGER,
+    prompt TEXT,
+    criteria TEXT,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eval_id INTEGER,
+    model TEXT,
+    passed INTEGER,
+    total INTEGER,
+    score REAL,
+    detail TEXT,
+    created_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
+CREATE INDEX IF NOT EXISTS idx_cases_eval ON eval_cases(eval_id);
+CREATE INDEX IF NOT EXISTS idx_evalruns_eval ON eval_runs(eval_id);
 """
 
 
@@ -545,6 +570,61 @@ class Store:
         return [dict(r) for r in self._query(
             "SELECT model, input_tokens, output_tokens, cost, created_at FROM usage "
             "WHERE created_at>=? ORDER BY created_at", (since,))]
+
+    # -- evals -----------------------------------------------------------------
+    def upsert_eval(self, name: str, description: str = "") -> int:
+        row = self._query("SELECT id FROM evals WHERE name=?", (name,))
+        if row:
+            self._write("UPDATE evals SET description=? WHERE id=?",
+                        (description, row[0]["id"]))
+            return int(row[0]["id"])
+        cur = self._write(
+            "INSERT INTO evals (name, description, created_at) VALUES (?,?,?)",
+            (name, description, time.time()))
+        return int(cur.lastrowid)
+
+    def add_eval_case(self, eval_id: int, prompt: str, criteria: str) -> int:
+        cur = self._write(
+            "INSERT INTO eval_cases (eval_id, prompt, criteria, created_at) VALUES (?,?,?,?)",
+            (eval_id, prompt, criteria, time.time()))
+        return int(cur.lastrowid)
+
+    def set_eval_cases(self, eval_id: int, cases: list[dict[str, str]]) -> None:
+        """Replace a suite's cases wholesale (used when saving from the GUI)."""
+        self._write("DELETE FROM eval_cases WHERE eval_id=?", (eval_id,))
+        for c in cases:
+            self.add_eval_case(eval_id, c.get("prompt", ""), c.get("criteria", ""))
+
+    def list_evals(self) -> list[dict[str, Any]]:
+        out = []
+        for r in self._query("SELECT id, name, description, created_at FROM evals ORDER BY id DESC"):
+            d = dict(r)
+            d["cases"] = [dict(c) for c in self._query(
+                "SELECT id, prompt, criteria FROM eval_cases WHERE eval_id=? ORDER BY id",
+                (d["id"],))]
+            d["runs"] = [dict(rr) for rr in self._query(
+                "SELECT passed, total, score, model, created_at FROM eval_runs "
+                "WHERE eval_id=? ORDER BY id DESC LIMIT 20", (d["id"],))]
+            out.append(d)
+        return out
+
+    def eval_cases(self, eval_id: int) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT id, prompt, criteria FROM eval_cases WHERE eval_id=? ORDER BY id",
+            (eval_id,))]
+
+    def add_eval_run(self, eval_id: int, model: str, passed: int, total: int,
+                     score: float, detail: str) -> int:
+        cur = self._write(
+            "INSERT INTO eval_runs (eval_id, model, passed, total, score, detail, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (eval_id, model, passed, total, score, detail, time.time()))
+        return int(cur.lastrowid)
+
+    def delete_eval(self, eval_id: int) -> None:
+        self._write("DELETE FROM eval_cases WHERE eval_id=?", (eval_id,))
+        self._write("DELETE FROM eval_runs WHERE eval_id=?", (eval_id,))
+        self._write("DELETE FROM evals WHERE id=?", (eval_id,))
 
     def close(self) -> None:
         with self._lock:

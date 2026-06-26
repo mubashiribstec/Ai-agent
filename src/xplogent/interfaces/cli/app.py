@@ -457,11 +457,44 @@ skills_app = typer.Typer(help="Inspect learned skills.")
 schedule_app = typer.Typer(help="Schedule recurring / timed agent jobs.")
 knowledge_app = typer.Typer(help="Export/import learned facts + skills (JSON).")
 docs_app = typer.Typer(help="Ingest documents for RAG (the agent answers from them).")
+evals_app = typer.Typer(help="Run agent eval suites (LLM-judged quality checks).")
 app.add_typer(memory_app, name="memory")
 app.add_typer(skills_app, name="skills")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(knowledge_app, name="knowledge")
 app.add_typer(docs_app, name="docs")
+app.add_typer(evals_app, name="evals")
+
+
+@evals_app.command("list")
+def evals_list() -> None:
+    """List eval suites and their latest pass-rate."""
+    store = Store(load_config().db_path)
+    suites = store.list_evals()
+    store.close()
+    if not suites:
+        console.print("[dim]no eval suites — create one in the dashboard[/]")
+        return
+    for s in suites:
+        last = s["runs"][0] if s["runs"] else None
+        rate = f"{last['passed']}/{last['total']}" if last else "never run"
+        console.print(f"[cyan]#{s['id']}[/] {s['name']} [dim]({len(s['cases'])} cases)[/] — {rate}")
+
+
+@evals_app.command("run")
+def evals_run(eval_id: int) -> None:
+    """Run a suite by id and print the score."""
+    from xplogent.core.evals import run_suite
+
+    res = asyncio.run(run_suite(eval_id))
+    if res.get("ok") is False:
+        console.print(f"[red]{res.get('error')}[/]")
+        return
+    color = "green" if res["passed"] == res["total"] else "yellow"
+    console.print(f"[{color}]{res['passed']}/{res['total']} passed[/] · score {res['score']}")
+    for r in res["results"]:
+        mark = "[green]✓[/]" if r["passed"] else "[red]✗[/]"
+        console.print(f"  {mark} {r['prompt'][:60]} [dim]— {r['reason']}[/]")
 
 
 @docs_app.command("ingest")

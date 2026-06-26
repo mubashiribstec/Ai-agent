@@ -711,6 +711,68 @@ def create_app():
         store.close()
         return {"ok": True}
 
+    # ── Analytics (usage aggregation) ────────────────────────────────────────
+    @app.get("/analytics")
+    async def analytics(days: int = 30) -> dict:
+        import time as _t
+        store = Store(load_config().db_path)
+        since = _t.time() - days * 86400
+        rows = store.usage_rows(since)
+        store.close()
+
+        by_day: dict[str, dict] = {}
+        by_model: dict[str, dict] = {}
+        totals = {"input_tokens": 0, "output_tokens": 0, "cost": 0.0, "turns": len(rows)}
+        for r in rows:
+            day = _t.strftime("%Y-%m-%d", _t.localtime(r["created_at"]))
+            d = by_day.setdefault(day, {"day": day, "input_tokens": 0, "output_tokens": 0, "cost": 0.0, "turns": 0})
+            m = by_model.setdefault(r["model"], {"model": r["model"], "input_tokens": 0, "output_tokens": 0, "cost": 0.0, "turns": 0})
+            for bucket in (d, m, totals):
+                bucket["input_tokens"] += r["input_tokens"] or 0
+                bucket["output_tokens"] += r["output_tokens"] or 0
+                bucket["cost"] += r["cost"] or 0.0
+            d["turns"] += 1
+            m["turns"] += 1
+        totals["cost"] = round(totals["cost"], 4)
+        return {
+            "totals": totals,
+            "by_day": sorted(by_day.values(), key=lambda x: x["day"]),
+            "by_model": sorted(by_model.values(), key=lambda x: -x["turns"]),
+        }
+
+    # ── Evals ────────────────────────────────────────────────────────────────
+    @app.get("/evals")
+    async def list_evals() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_evals()
+        store.close()
+        return {"evals": out}
+
+    @app.post("/evals")
+    async def save_eval(body: dict) -> dict:
+        store = Store(load_config().db_path)
+        eid = store.upsert_eval(str(body.get("name", "suite")), str(body.get("description", "")))
+        if isinstance(body.get("cases"), list):
+            store.set_eval_cases(eid, body["cases"])
+        out = next((e for e in store.list_evals() if e["id"] == eid), None)
+        store.close()
+        return {"ok": True, "eval": out}
+
+    @app.delete("/evals/{eval_id}")
+    async def delete_eval(eval_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_eval(eval_id)
+        store.close()
+        return {"ok": True}
+
+    @app.post("/evals/{eval_id}/run")
+    async def run_eval(eval_id: int) -> dict:
+        from xplogent.core.evals import run_suite
+        try:
+            return await run_suite(eval_id)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+
     # ── Persona (SOUL.md) + curated memory (MEMORY.md) ───────────────────────
     @app.get("/persona/soul")
     async def get_soul() -> dict:
