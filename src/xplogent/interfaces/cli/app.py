@@ -456,10 +456,52 @@ memory_app = typer.Typer(help="Inspect memory.")
 skills_app = typer.Typer(help="Inspect learned skills.")
 schedule_app = typer.Typer(help="Schedule recurring / timed agent jobs.")
 knowledge_app = typer.Typer(help="Export/import learned facts + skills (JSON).")
+docs_app = typer.Typer(help="Ingest documents for RAG (the agent answers from them).")
 app.add_typer(memory_app, name="memory")
 app.add_typer(skills_app, name="skills")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(knowledge_app, name="knowledge")
+app.add_typer(docs_app, name="docs")
+
+
+@docs_app.command("ingest")
+def docs_ingest(path: str) -> None:
+    """Ingest a file or folder into the document store."""
+    from xplogent.core.rag import ingest_path
+    from xplogent.memory.vector import Embedder
+    from xplogent.providers.registry import build_provider
+
+    cfg = load_config()
+    store = Store(cfg.db_path)
+
+    async def _go() -> dict:
+        ep = build_provider(cfg.embedding_model)
+        try:
+            return await ingest_path(store, Embedder(ep), path)
+        finally:
+            await ep.aclose()
+            store.close()
+
+    res = asyncio.run(_go())
+    if res.get("ok"):
+        console.print(f"[green]ingested[/] {len(res['ingested'])} file(s), "
+                      f"{res['chunks']} chunks ([dim]{res['skipped']} skipped[/])")
+    else:
+        console.print(f"[red]{res.get('error')}[/]")
+
+
+@docs_app.command("list")
+def docs_list() -> None:
+    """List ingested documents."""
+    cfg = load_config()
+    store = Store(cfg.db_path)
+    docs = store.list_documents()
+    store.close()
+    if not docs:
+        console.print("[dim]no documents ingested[/]")
+        return
+    for d in docs:
+        console.print(f"[cyan]#{d['id']}[/] {d['title']} [dim]({d['chunks']} chunks)[/]")
 
 
 @knowledge_app.command("export")

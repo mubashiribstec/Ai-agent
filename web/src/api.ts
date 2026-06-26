@@ -175,6 +175,21 @@ export async function compactMemory(): Promise<{ ok: boolean; content?: string }
   return (await fetch("/memory/compact", { method: "POST" })).json();
 }
 
+// ── Documents / RAG ───────────────────────────────────────────────────────────
+export interface DocInfo { id: number; source: string; title: string; chunks: number; created_at: number; }
+export async function getDocs(): Promise<{ documents: DocInfo[] }> {
+  return (await fetch("/docs")).json();
+}
+export async function ingestDocs(body: { path?: string; content?: string; title?: string }): Promise<any> {
+  return (await fetch("/docs/ingest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
+export async function searchDocs(q: string): Promise<{ hits: any[] }> {
+  return (await fetch(`/docs/search?q=${encodeURIComponent(q)}`)).json();
+}
+export async function deleteDoc(id: number) {
+  await fetch(`/docs/${id}`, { method: "DELETE" });
+}
+
 // ── Skills hub ────────────────────────────────────────────────────────────────
 export interface SkillPack { name: string; description: string; trigger: string; tools: string[]; path?: string; }
 export async function getSkillLibrary(): Promise<{ packs: SkillPack[] }> {

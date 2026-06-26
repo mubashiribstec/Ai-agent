@@ -73,6 +73,7 @@ tools:
     - gui
     - browser
     - vision
+    - documents
 
 # ─── Execution backend for `shell` / `python_exec` ────────────────────
 # Where commands run. "local" = this machine (default). "docker" runs them

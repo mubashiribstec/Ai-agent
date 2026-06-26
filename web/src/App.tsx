@@ -8,6 +8,7 @@ import { getSessions, getStatus } from "./api";
 import { Chat } from "./views/Chat";
 import { Runs } from "./views/Runs";
 import { Persona } from "./views/Persona";
+import { Knowledge } from "./views/Knowledge";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -85,6 +86,7 @@ export function App() {
         {tab === "council" && <Council />}
         {tab === "mission" && <MissionControl />}
         {tab === "runs" && <Runs />}
+        {tab === "knowledge" && <Knowledge />}
         {tab === "persona" && <Persona />}
         {tab === "schedules" && <Schedules />}
         {tab === "settings" && <Settings />}

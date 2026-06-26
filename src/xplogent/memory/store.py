@@ -86,8 +86,34 @@ CREATE TABLE IF NOT EXISTS schedules (
     last_status TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT,
+    title TEXT,
+    hash TEXT,
+    chunks INTEGER DEFAULT 0,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS doc_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id INTEGER,
+    ord INTEGER,
+    content TEXT,
+    embedding TEXT,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost REAL,
+    session_id INTEGER,
+    created_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
 """
 
 
@@ -172,11 +198,13 @@ class Store:
         self.conn.commit()
 
     def _init_fts(self) -> None:
-        """Best-effort full-text index over message content (FTS5 may be absent)."""
+        """Best-effort full-text index over message + document content (FTS5)."""
         try:
             self.conn.executescript(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5("
                 "content, session_id UNINDEXED, role UNINDEXED);"
+                "CREATE VIRTUAL TABLE IF NOT EXISTS doc_chunks_fts USING fts5("
+                "content, doc_id UNINDEXED);"
             )
             self.conn.commit()
             self._fts = True
@@ -446,6 +474,77 @@ class Store:
 
     def delete_schedule(self, schedule_id: int) -> None:
         self._write("DELETE FROM schedules WHERE id=?", (schedule_id,))
+
+    # -- documents (RAG) -------------------------------------------------------
+    def doc_exists(self, content_hash: str) -> int | None:
+        rows = self._query("SELECT id FROM documents WHERE hash=?", (content_hash,))
+        return int(rows[0]["id"]) if rows else None
+
+    def add_document(self, source: str, title: str, content_hash: str) -> int:
+        cur = self._write(
+            "INSERT INTO documents (source, title, hash, chunks, created_at) VALUES (?,?,?,0,?)",
+            (source, title, content_hash, time.time()),
+        )
+        return int(cur.lastrowid)
+
+    def add_chunk(self, doc_id: int, ord_: int, content: str, embedding: list[float]) -> None:
+        cur = self._write(
+            "INSERT INTO doc_chunks (doc_id, ord, content, embedding, created_at) VALUES (?,?,?,?,?)",
+            (doc_id, ord_, content, json.dumps(embedding), time.time()),
+        )
+        if self._fts:
+            self._write("INSERT INTO doc_chunks_fts (rowid, content, doc_id) VALUES (?,?,?)",
+                        (int(cur.lastrowid), content, doc_id))
+        self._write("UPDATE documents SET chunks = chunks + 1 WHERE id=?", (doc_id,))
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT id, source, title, chunks, created_at FROM documents ORDER BY id DESC")]
+
+    def all_chunks(self) -> list[dict[str, Any]]:
+        rows = self._query("SELECT id, doc_id, content, embedding FROM doc_chunks")
+        return [{"id": r["id"], "doc_id": r["doc_id"], "content": r["content"],
+                 "embedding": json.loads(r["embedding"] or "[]")} for r in rows]
+
+    def search_chunks_fts(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        if not (self._fts and query.strip()):
+            return []
+        terms = [t for t in query.replace('"', " ").split() if t]
+        match = " ".join(f'"{t}"' for t in terms) or f'"{query.strip()}"'
+        try:
+            rows = self._query(
+                "SELECT rowid AS id, doc_id, content FROM doc_chunks_fts "
+                "WHERE doc_chunks_fts MATCH ? ORDER BY bm25(doc_chunks_fts) LIMIT ?",
+                (match, limit))
+            return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            return []
+
+    def doc_title(self, doc_id: int) -> str:
+        rows = self._query("SELECT source, title FROM documents WHERE id=?", (doc_id,))
+        if not rows:
+            return ""
+        return rows[0]["title"] or rows[0]["source"] or f"doc {doc_id}"
+
+    def delete_document(self, doc_id: int) -> None:
+        self._write("DELETE FROM doc_chunks WHERE doc_id=?", (doc_id,))
+        self._write("DELETE FROM documents WHERE id=?", (doc_id,))
+        if self._fts:
+            self._write("DELETE FROM doc_chunks_fts WHERE doc_id=?", (doc_id,))
+
+    # -- usage accounting (analytics) ------------------------------------------
+    def add_usage(self, model: str, input_tokens: int, output_tokens: int,
+                  cost: float, session_id: int | None) -> None:
+        self._write(
+            "INSERT INTO usage (model, input_tokens, output_tokens, cost, session_id, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (model, input_tokens, output_tokens, cost, session_id, time.time()),
+        )
+
+    def usage_rows(self, since: float = 0.0) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT model, input_tokens, output_tokens, cost, created_at FROM usage "
+            "WHERE created_at>=? ORDER BY created_at", (since,))]
 
     def close(self) -> None:
         with self._lock:

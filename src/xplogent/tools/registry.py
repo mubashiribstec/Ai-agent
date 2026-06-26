@@ -5,6 +5,7 @@ from __future__ import annotations
 from xplogent.providers.base import ToolSpec
 from xplogent.tools.base import Tool
 from xplogent.tools.browser import browser_tools
+from xplogent.tools.documents import documents_tools
 from xplogent.tools.filesystem import filesystem_tools
 from xplogent.tools.gui import gui_tools
 from xplogent.tools.python_exec import PythonExecTool
@@ -21,6 +22,7 @@ _BUILTIN_GROUPS = {
     "gui": gui_tools,
     "browser": browser_tools,
     "vision": vision_tools,
+    "documents": documents_tools,
 }
 
 

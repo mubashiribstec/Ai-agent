@@ -661,6 +661,56 @@ def create_app():
         store.close()
         return {"ok": True}
 
+    # ── Documents / RAG ──────────────────────────────────────────────────────
+    @app.get("/docs")
+    async def list_docs() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_documents()
+        store.close()
+        return {"documents": out}
+
+    @app.post("/docs/ingest")
+    async def ingest_docs(body: dict) -> dict:
+        from xplogent.core.rag import ingest_path, ingest_text
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        provider = build_provider(cfg.embedding_model)
+        mem_embedder = Embedder(provider)
+        try:
+            if body.get("content"):
+                res = await ingest_text(store, mem_embedder, str(body["content"]),
+                                        str(body.get("title", "pasted")))
+            elif body.get("path"):
+                res = await ingest_path(store, mem_embedder, str(body["path"]))
+            else:
+                res = {"ok": False, "error": "provide 'path' or 'content'"}
+        except Exception as exc:  # noqa: BLE001
+            res = {"ok": False, "error": str(exc)}
+        finally:
+            await provider.aclose()
+            store.close()
+        return res
+
+    @app.get("/docs/search")
+    async def search_docs(q: str, k: int = 5) -> dict:
+        from xplogent.core.rag import hybrid_search
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        provider = build_provider(cfg.embedding_model)
+        try:
+            hits = await hybrid_search(store, Embedder(provider), q, k=k)
+        finally:
+            await provider.aclose()
+            store.close()
+        return {"hits": hits}
+
+    @app.delete("/docs/{doc_id}")
+    async def delete_doc(doc_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_document(doc_id)
+        store.close()
+        return {"ok": True}
+
     # ── Persona (SOUL.md) + curated memory (MEMORY.md) ───────────────────────
     @app.get("/persona/soul")
     async def get_soul() -> dict:
