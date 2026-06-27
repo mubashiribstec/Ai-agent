@@ -294,6 +294,14 @@ def create_app():
         store.close()
         return {"ok": True}
 
+    @app.post("/sessions/{session_id}/undo")
+    async def undo_session(session_id: int, n: int = 1) -> dict:
+        """Roll back the last n user→assistant exchanges in a session."""
+        store = Store(load_config().db_path)
+        removed = store.delete_last_turns(session_id, n)
+        store.close()
+        return {"ok": True, "removed": removed}
+
     # ── Model presets ────────────────────────────────────────────────────────
     @app.get("/models")
     async def models() -> dict:

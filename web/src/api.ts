@@ -438,6 +438,10 @@ export async function deleteSession(id: number) {
   await fetch(`/sessions/${id}`, { method: "DELETE" });
 }
 
+export async function undoTurns(id: number, n = 1): Promise<{ ok: boolean; removed: number }> {
+  return (await fetch(`/sessions/${id}/undo?n=${n}`, { method: "POST" })).json();
+}
+
 export async function renameSession(id: number, title: string) {
   await fetch(`/sessions/${id}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" },

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Copy, Download, FileJson, ImagePlus, Mic, MicOff, RotateCcw, Search, Send, Share2, ShieldCheck,
-  Square, Trash2, Volume2, X,
+  Square, Trash2, Undo2, Volume2, X,
 } from "lucide-react";
 import {
   ApprovalRequest, ConnStatus, XplogentEvent, XplogentSocket,
   deleteSession, getSessionMessages, getSessions, getSkills, newSession,
-  renameSession, searchMemory,
+  renameSession, searchMemory, undoTurns,
 } from "../api";
 import { LayoutDashboard } from "lucide-react";
 import { GenChoice, ModelBar } from "../ModelBar";
@@ -168,7 +168,19 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
     });
     setInput(""); setImages([]); setBusy(true);
   };
-  const send = () => sendText(input);
+  const send = () => {
+    const cmd = input.trim().match(/^\/undo(?:\s+(\d+))?$/i);
+    if (cmd) { undo(Number(cmd[1] || 1)); setInput(""); return; }
+    sendText(input);
+  };
+
+  // Roll back the last N exchanges (also typed as "/undo [N]").
+  const undo = async (n = 1) => {
+    if (!activeId) { toast("nothing to undo", "info"); return; }
+    const res = await undoTurns(activeId, n);
+    if (res.removed > 0) { loadSession(activeId); toast(`undid ${n} turn${n > 1 ? "s" : ""}`, "success"); }
+    else toast("nothing to undo", "info");
+  };
 
   // Hands-free conversation: speak replies, auto-send finished utterances, barge-in.
   const toggleHandsFree = () => {
@@ -264,6 +276,8 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
             <button className={`btn ghost sm ${canvasOpen ? "active" : ""}`} title="Toggle Canvas"
               onClick={() => setCanvasOpen((o) => !o)}><LayoutDashboard size={15} /> Canvas</button>
           )}
+          <button className="btn ghost sm" title="Undo the last exchange (/undo [N])" disabled={!log.length || busy}
+            onClick={() => undo(1)}><Undo2 size={15} /> Undo</button>
           <button className="btn ghost sm" title="Download as Markdown" disabled={!log.length}
             onClick={() => downloadMarkdown(chatTitle(), transcript())}><Download size={15} /> .md</button>
           <button className="btn ghost sm" title="Download as JSON" disabled={!log.length}

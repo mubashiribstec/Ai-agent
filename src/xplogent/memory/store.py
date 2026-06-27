@@ -358,6 +358,28 @@ class Store:
         )
         return [dict(r) for r in rows]
 
+    def delete_last_turns(self, session_id: int, n: int = 1) -> int:
+        """Remove the last ``n`` user→assistant exchanges from a session.
+
+        A turn starts at a user message; everything from the n-th-from-last user
+        message onward (its assistant reply and anything after) is deleted, along
+        with the matching FTS rows. Returns the number of messages removed.
+        """
+        n = max(1, n)
+        user_ids = [r["id"] for r in self._query(
+            "SELECT id FROM messages WHERE session_id=? AND role='user' ORDER BY id",
+            (session_id,))]
+        if not user_ids:
+            return 0
+        cutoff = user_ids[-n] if n <= len(user_ids) else user_ids[0]
+        ids = [r["id"] for r in self._query(
+            "SELECT id FROM messages WHERE session_id=? AND id>=?", (session_id, cutoff))]
+        self._write("DELETE FROM messages WHERE session_id=? AND id>=?", (session_id, cutoff))
+        if self._fts:
+            for mid in ids:
+                self._write("DELETE FROM messages_fts WHERE rowid=?", (mid,))
+        return len(ids)
+
     def search_messages(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Full-text ranked search (FTS5) with a LIKE fallback when unavailable."""
         if self._fts and query.strip():

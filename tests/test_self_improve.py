@@ -35,7 +35,9 @@ async def test_reflection_fires_on_toolless_chat(tmp_path):
     main = ScriptedProvider([Message(role=Role.ASSISTANT, content="hello there!")])
 
     agent = Agent(
-        load_config(), main, ToolRegistry.from_config([]),
+        # reflect_min_steps=0 opts into reflecting even on tool-less chat (default is 1).
+        load_config(overrides={"skills": {"reflect_min_steps": 0}}),
+        main, ToolRegistry.from_config([]),
         SafetyManager(policy={"low": "auto", "medium": "auto", "high": "auto", "critical": "deny"}),
         memory=mem, reflector=reflector, skills=skills,
     )

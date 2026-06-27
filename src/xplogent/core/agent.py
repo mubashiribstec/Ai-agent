@@ -384,11 +384,20 @@ class Agent:
             self.current_tool = None
 
     async def _post_task(self, task: str, transcript: str, tool_steps: int) -> None:
-        """Self-improvement: reflect, then consolidate memory and skills."""
+        """Self-improvement: reflect, then consolidate memory and skills.
+
+        Reflection is gated so routine runs don't spend tokens: it's skipped when
+        fewer than ``reflect_min_steps`` tools ran (default 1 → plain chat skips),
+        and only fires every ``reflect_every`` qualifying task.
+        """
         if not (self.reflector and self.skills and self.config.skills.get("reflect_after_tasks", True)):
             return
-        if tool_steps < int(self.config.skills.get("reflect_min_steps", 0)):
-            return  # optional gate; default 0 reflects after every task (incl. chat)
+        if tool_steps < int(self.config.skills.get("reflect_min_steps", 1)):
+            return  # plain-chat / trivial turns: don't burn tokens reflecting
+        every = max(1, int(self.config.skills.get("reflect_every", 1)))
+        self._reflect_counter = getattr(self, "_reflect_counter", 0) + 1
+        if self._reflect_counter % every != 0:
+            return  # batch consolidation: only reflect every Nth qualifying task
         result = await self.reflector.reflect(task, transcript)
         summary = await self.skills.apply(result)
         if summary.get("facts") or summary.get("skill"):

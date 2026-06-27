@@ -111,8 +111,9 @@ execution:
 
 skills:
   enabled: true
-  reflect_after_tasks: true   # run self-improvement reflection after each task
-  reflect_min_steps: 0        # 0 = reflect after every task (incl. plain chat)
+  reflect_after_tasks: true   # run self-improvement reflection after qualifying tasks
+  reflect_min_steps: 1        # min tools used before reflecting (1 = skip plain chat; 0 = always)
+  reflect_every: 1            # only reflect every Nth qualifying task (higher = cheaper)
 
 # ─── Multi-agent orchestration ────────────────────────────────────────
 orchestrator:
