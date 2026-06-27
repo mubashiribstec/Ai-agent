@@ -7,6 +7,7 @@ multi-agent runs.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from xplogent.core.messaging import MessageBus
@@ -15,6 +16,38 @@ from xplogent.tools.base import Tool, ToolResult
 
 # Spawns a sub-agent: (task, role, depth) -> answer.
 DelegateCallback = Callable[[str, str, int], Awaitable[str]]
+
+
+class BackgroundTasks:
+    """Shared registry of fire-and-forget subagent tasks for one run.
+
+    A team lead dispatches work with ``delegate_task(background=true)`` and keeps
+    going; ``collect_tasks`` later drains finished results. Collected results are
+    removed so each is reported once.
+    """
+
+    def __init__(self) -> None:
+        self._tasks: dict[str, dict] = {}
+        self._n = 0
+
+    def register(self, desc: str) -> str:
+        self._n += 1
+        tid = f"bg{self._n}"
+        self._tasks[tid] = {"status": "running", "result": None, "task": desc}
+        return tid
+
+    def complete(self, tid: str, result: str, ok: bool = True) -> None:
+        if tid in self._tasks:
+            self._tasks[tid].update(status="done" if ok else "error", result=result)
+
+    def pending(self) -> int:
+        return sum(1 for v in self._tasks.values() if v["status"] == "running")
+
+    def collect(self) -> list[dict]:
+        done = [{"id": k, **v} for k, v in self._tasks.items() if v["status"] != "running"]
+        for d in done:
+            self._tasks.pop(d["id"], None)
+        return done
 
 
 class BroadcastTool(Tool):
@@ -108,21 +141,64 @@ class DelegateTool(Tool):
             "task": {"type": "string", "description": "The complete instruction for the helper."},
             "role": {"type": "string",
                      "description": "Role profile for the helper (default 'operator')."},
+            "background": {"type": "boolean",
+                           "description": "Dispatch asynchronously and keep working; gather the "
+                                          "result later with collect_tasks. Default false (wait)."},
         },
         "required": ["task"],
     }
     risk = RiskLevel.MEDIUM
 
-    def __init__(self, delegate: DelegateCallback, depth: int, max_depth: int) -> None:
+    def __init__(self, delegate: DelegateCallback, depth: int, max_depth: int,
+                 background_tasks: BackgroundTasks | None = None) -> None:
         self._delegate, self._depth, self._max = delegate, depth, max_depth
+        self._bg = background_tasks
 
-    async def run(self, task: str, role: str = "operator") -> ToolResult:
+    async def run(self, task: str, role: str = "operator", background: bool = False) -> ToolResult:
         if self._depth >= self._max:
             return ToolResult.failure(
                 f"delegation depth limit reached ({self._max}); do this work yourself."
             )
+        if background and self._bg is not None:
+            tid = self._bg.register(task)
+
+            async def _go() -> None:
+                try:
+                    answer = await self._delegate(task, role, self._depth + 1)
+                    self._bg.complete(tid, answer or "(no answer)", ok=True)
+                except Exception as exc:  # noqa: BLE001 - background failure mustn't crash the lead
+                    self._bg.complete(tid, f"error: {exc}", ok=False)
+
+            asyncio.create_task(_go())
+            return ToolResult.success(
+                f"dispatched background task {tid}. Keep working; call collect_tasks "
+                "to gather results when ready.")
         answer = await self._delegate(task, role, self._depth + 1)
         return ToolResult.success(answer or "(helper returned no answer)")
+
+
+class CollectTasksTool(Tool):
+    name = "collect_tasks"
+    description = (
+        "Collect results from background subagents you dispatched with "
+        "delegate_task(background=true). Returns finished results (once each) and "
+        "how many are still running."
+    )
+    parameters = {"type": "object", "properties": {}}
+    risk = RiskLevel.LOW
+
+    def __init__(self, background_tasks: BackgroundTasks) -> None:
+        self._bg = background_tasks
+
+    async def run(self) -> ToolResult:
+        done = self._bg.collect()
+        pending = self._bg.pending()
+        if not done:
+            return ToolResult.success(f"(no finished background tasks; {pending} still running)")
+        lines = [f"[{d['id']} {d['status']}] {d['task'][:50]} -> {str(d['result'])[:400]}"
+                 for d in done]
+        tail = f"\n({pending} still running)" if pending else ""
+        return ToolResult.success("\n".join(lines) + tail)
 
 
 def collab_tools(
@@ -133,6 +209,7 @@ def collab_tools(
     delegate: DelegateCallback | None = None,
     depth: int = 0,
     max_depth: int = 2,
+    background_tasks: BackgroundTasks | None = None,
 ) -> list[Tool]:
     tools: list[Tool] = [
         BroadcastTool(bus, agent_id, agent_name),
@@ -142,5 +219,7 @@ def collab_tools(
     ]
     # Only offer delegation while there's still depth budget left.
     if delegate is not None and depth < max_depth:
-        tools.append(DelegateTool(delegate, depth, max_depth))
+        tools.append(DelegateTool(delegate, depth, max_depth, background_tasks))
+        if background_tasks is not None:
+            tools.append(CollectTasksTool(background_tasks))
     return tools

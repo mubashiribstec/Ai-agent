@@ -77,6 +77,9 @@ class Orchestrator:
         self.run_id = uuid.uuid4().hex[:12]
         self.message_bus = MessageBus(bus, store=store, run_id=self.run_id)
         self.board = TaskBoard(bus, run_id=self.run_id)
+        # Shared registry so any worker can dispatch + collect background subagents.
+        from xplogent.tools.collab import BackgroundTasks
+        self.background_tasks = BackgroundTasks()
         self.default_max = int(config.orchestrator.get("max_concurrent_agents", 3))
         self.task_retries = int(config.orchestrator.get("max_task_retries", 2))
         self.max_delegation_depth = int(config.orchestrator.get("max_delegation_depth", 2))
@@ -97,7 +100,8 @@ class Orchestrator:
         if self.config.orchestrator.get("enable_collab_tools", True):
             for tool in collab_tools(self.message_bus, agent_id, name,
                                      delegate=self.delegate, depth=depth,
-                                     max_depth=self.max_delegation_depth):
+                                     max_depth=self.max_delegation_depth,
+                                     background_tasks=self.background_tasks):
                 if profile.allows_tool(tool.name):
                     tools.register(tool)
 
