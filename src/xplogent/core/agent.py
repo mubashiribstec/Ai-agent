@@ -296,6 +296,17 @@ class Agent:
             })
         await self._emit(EventType.USAGE, **data)
 
+    def _audit(self, action: str, target: str, risk: str = "",
+               allowed: bool | None = None, detail: str = "") -> None:
+        """Best-effort security audit entry (never breaks a run)."""
+        if not self.memory:
+            return
+        try:
+            self.memory.store.add_audit(
+                getattr(self, "name", "agent"), action, target, risk, allowed, detail)
+        except Exception:  # noqa: BLE001
+            pass
+
     async def _run_tool(self, name: str, arguments: dict) -> str:
         tool = self.tools.get(name)
         if tool is None:
@@ -306,6 +317,7 @@ class Agent:
         decision = await self.safety.evaluate(tool, arguments, self.approve)
         if decision.needed_confirmation:
             await self._emit(EventType.APPROVAL_RESOLVED, tool=name, allowed=decision.allowed)
+        self._audit("tool", name, decision.risk.value, decision.allowed, _short(arguments, 200))
         if not decision.allowed:
             text = f"BLOCKED by safety policy ({decision.risk.value}): {decision.reason}"
             await self._emit(EventType.TOOL_RESULT, tool=name, ok=False, output=text)

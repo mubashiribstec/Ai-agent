@@ -134,11 +134,22 @@ CREATE TABLE IF NOT EXISTS eval_runs (
     detail TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT,
+    action TEXT,
+    target TEXT,
+    risk TEXT,
+    allowed INTEGER,
+    detail TEXT,
+    created_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
 CREATE INDEX IF NOT EXISTS idx_cases_eval ON eval_cases(eval_id);
 CREATE INDEX IF NOT EXISTS idx_evalruns_eval ON eval_runs(eval_id);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(created_at);
 """
 
 
@@ -625,6 +636,30 @@ class Store:
         self._write("DELETE FROM eval_cases WHERE eval_id=?", (eval_id,))
         self._write("DELETE FROM eval_runs WHERE eval_id=?", (eval_id,))
         self._write("DELETE FROM evals WHERE id=?", (eval_id,))
+
+    # -- audit log -------------------------------------------------------------
+    def add_audit(self, actor: str, action: str, target: str = "", risk: str = "",
+                  allowed: bool | None = None, detail: str = "") -> None:
+        self._write(
+            "INSERT INTO audit (actor, action, target, risk, allowed, detail, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (actor, action, target, risk,
+             None if allowed is None else int(allowed), detail, time.time()))
+
+    def audit_rows(self, limit: int = 200, action: str = "", risk: str = "") -> list[dict[str, Any]]:
+        sql = "SELECT actor, action, target, risk, allowed, detail, created_at FROM audit"
+        clauses, params = [], []
+        if action:
+            clauses.append("action=?")
+            params.append(action)
+        if risk:
+            clauses.append("risk=?")
+            params.append(risk)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        return [dict(r) for r in self._query(sql, tuple(params))]
 
     def close(self) -> None:
         with self._lock:

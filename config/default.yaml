@@ -41,6 +41,11 @@ memory:
 canvas:
   enabled: true
 
+# Dashboard/API security. Leave auth_token empty for an open localhost server;
+# `xplogent token` sets one, and it's auto-generated when binding to 0.0.0.0.
+server:
+  auth_token: ""
+
 safety:
   # Policy per risk tier: "auto" (run), "confirm" (ask), or "deny" (block).
   policy:

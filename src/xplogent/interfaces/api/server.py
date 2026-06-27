@@ -54,11 +54,54 @@ def create_app():
             if sched is not None:
                 await sched.stop()
 
+    import hmac
+
+    from fastapi.responses import JSONResponse
+
     app = FastAPI(title="Xplogent Agent API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
     )
+
+    # ── Optional access-token gate ───────────────────────────────────────────
+    # When ``server.auth_token`` is set (auto-enabled when binding to a non-local
+    # host), every API call must present it via ``Authorization: Bearer``, a
+    # ``xpl_token`` cookie, or a ``?token=`` query param. The dashboard shell and
+    # health check stay public so the browser can load and prompt for the token.
+    _STATIC_EXT = (".js", ".css", ".svg", ".png", ".ico", ".woff", ".woff2", ".map", ".webmanifest")
+
+    def _auth_token() -> str:
+        return str(load_config().raw.get("server", {}).get("auth_token") or "").strip()
+
+    def _is_public(path: str, method: str) -> bool:
+        if path in ("/health", "/auth/check"):
+            return True
+        return method == "GET" and (
+            path == "/" or path.startswith("/assets") or path.endswith(_STATIC_EXT))
+
+    def _request_token(request) -> str:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return request.cookies.get("xpl_token", "") or request.query_params.get("token", "")
+
+    @app.middleware("http")
+    async def _auth_mw(request, call_next):
+        token = _auth_token()
+        if token and not _is_public(request.url.path, request.method):
+            if not hmac.compare_digest(_request_token(request), token):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    def _audit_event(action: str, target: str = "", risk: str = "",
+                     allowed: bool | None = None, detail: str = "") -> None:
+        try:
+            store = Store(load_config().db_path)
+            store.add_audit("dashboard", action, target, risk, allowed, detail)
+            store.close()
+        except Exception:  # noqa: BLE001 - auditing must never break a request
+            pass
 
     class RunRequest(BaseModel):
         task: str
@@ -111,7 +154,17 @@ def create_app():
     @app.get("/health")
     async def health() -> dict:
         cfg = load_config()
-        return {"status": "ok", "model": cfg.model, "providers": available_providers()}
+        return {"status": "ok", "model": cfg.model, "providers": available_providers(),
+                "auth": bool(_auth_token())}
+
+    @app.get("/auth/check")
+    async def auth_check(request: Request) -> dict:
+        """Public: tells the dashboard whether auth is on and whether a token is valid."""
+        token = _auth_token()
+        if not token:
+            return {"required": False, "ok": True}
+        ok = hmac.compare_digest(_request_token(request), token)
+        return {"required": True, "ok": ok}
 
     @app.get("/status")
     async def status() -> dict:
@@ -239,8 +292,19 @@ def create_app():
         cfg = load_config()
         return {"models": cfg.models, "active": cfg.model, "providers": available_providers()}
 
+    def _ws_authorized(websocket: WebSocket) -> bool:
+        token = _auth_token()
+        if not token:
+            return True
+        provided = (websocket.query_params.get("token", "")
+                    or websocket.cookies.get("xpl_token", ""))
+        return hmac.compare_digest(provided, token)
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
+        if not _ws_authorized(websocket):
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         bus = EventBus()
         loop = asyncio.get_event_loop()
@@ -483,6 +547,9 @@ def create_app():
 
     @app.websocket("/ws/monitor")
     async def ws_monitor(websocket: WebSocket) -> None:
+        if not _ws_authorized(websocket):
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         run_id = websocket.query_params.get("run_id")
         info = active_runs.get(run_id) if run_id else (
@@ -528,11 +595,13 @@ def create_app():
     @app.patch("/config")
     async def patch_config(body: ConfigPatch) -> dict:
         merged = save_user_config(body.updates)
+        _audit_event("config_change", target=",".join(body.updates.keys())[:200])
         return {"ok": True, "config": merged}
 
     @app.put("/secrets")
     async def put_secrets(body: SecretsPatch) -> dict:
         save_env(body.keys)
+        _audit_event("secret_change", target=",".join(body.keys.keys()), risk="high")
         return {"ok": True, "secrets": secret_status()}
 
     @app.get("/tools")
@@ -740,6 +809,14 @@ def create_app():
             "by_model": sorted(by_model.values(), key=lambda x: -x["turns"]),
         }
 
+    # ── Audit log ────────────────────────────────────────────────────────────
+    @app.get("/audit")
+    async def audit_log(limit: int = 200, action: str = "", risk: str = "") -> dict:
+        store = Store(load_config().db_path)
+        rows = store.audit_rows(limit=limit, action=action, risk=risk)
+        store.close()
+        return {"entries": rows}
+
     # ── Evals ────────────────────────────────────────────────────────────────
     @app.get("/evals")
     async def list_evals() -> dict:
@@ -928,6 +1005,20 @@ def run_server(host: str | None = None, port: int | None = None,
     port = int(port or os.environ.get("XPLOGENT_API_PORT", 8765))
     global _serve_args
     _serve_args = ["up", "--port", str(port)]
+
+    # Security: when exposed beyond localhost, require an access token. Generate
+    # and persist one automatically if the operator hasn't set their own.
+    _is_local = host in ("127.0.0.1", "localhost", "::1", "")
+    if not _is_local:
+        cfg = load_config()
+        if not str(cfg.raw.get("server", {}).get("auth_token") or "").strip():
+            import secrets as _pysecrets
+
+            token = _pysecrets.token_urlsafe(32)
+            save_user_config({"server": {"auth_token": token}})
+            print("\n  Binding to a non-local host — access token enabled.")
+            print(f"  Your dashboard token:  {token}")
+            print("  Paste it when the dashboard prompts (Settings → re-generate to rotate).\n")
 
     if open_browser:
         import threading

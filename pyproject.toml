@@ -59,6 +59,11 @@ scheduler = [
 rag = [
     "pypdf>=4.0",
 ]
+# Enterprise security: encrypted secrets at rest + OS keyring for the key
+security = [
+    "cryptography>=42.0",
+    "keyring>=24.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -66,7 +71,7 @@ dev = [
     "mypy>=1.10",
 ]
 all = [
-    "xplogent[providers,control,memory,api,voice,mcp,scheduler,rag,dev]",
+    "xplogent[providers,control,memory,api,voice,mcp,scheduler,rag,security,dev]",
 ]
 
 [project.scripts]

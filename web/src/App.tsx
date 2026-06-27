@@ -3,14 +3,16 @@ import { Menu } from "lucide-react";
 import { NavRail, TABS, Tab } from "./components/NavRail";
 import { CommandPalette } from "./components/CommandPalette";
 import { Onboarding } from "./components/Onboarding";
+import { Login } from "./components/Login";
 import { useIsMobile } from "./hooks/useMediaQuery";
-import { getSessions, getStatus } from "./api";
+import { checkAuth, getSessions, getStatus } from "./api";
 import { Chat } from "./views/Chat";
 import { Runs } from "./views/Runs";
 import { Persona } from "./views/Persona";
 import { Knowledge } from "./views/Knowledge";
 import { Analytics } from "./views/Analytics";
 import { Evals } from "./views/Evals";
+import { Audit } from "./views/Audit";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -30,7 +32,13 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [onboard, setOnboard] = useState(false);
+  const [authed, setAuthed] = useState(true);
   const isMobile = useIsMobile();
+
+  // Gate the app behind the access token when the backend requires one.
+  useEffect(() => {
+    checkAuth().then((r) => setAuthed(!r.required || r.ok));
+  }, []);
 
   // Health polling drives the rail status dot.
   useEffect(() => {
@@ -70,6 +78,8 @@ export function App() {
 
   const go = (t: Tab) => { setTab(t); setNavOpen(false); };
 
+  if (!authed) return <Login onAuthed={() => { setAuthed(true); location.reload(); }} />;
+
   return (
     <div className="shell">
       <NavRail tab={tab} onSelect={go} online={online} theme={theme} onTheme={toggleTheme}
@@ -93,6 +103,7 @@ export function App() {
         {tab === "evals" && <Evals />}
         {tab === "persona" && <Persona />}
         {tab === "schedules" && <Schedules />}
+        {tab === "audit" && <Audit />}
         {tab === "settings" && <Settings />}
         {tab === "guide" && <Guide />}
       </div>

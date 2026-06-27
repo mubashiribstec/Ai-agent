@@ -1,9 +1,9 @@
 import {
   Activity, BarChart3, BookOpen, BookText, Calendar, FlaskConical, LayoutGrid, type LucideIcon,
-  MessageSquare, Moon, Settings as Cog, Sparkles, Sun, Users,
+  MessageSquare, Moon, Settings as Cog, ShieldAlert, Sparkles, Sun, Users,
 } from "lucide-react";
 
-export type Tab = "chat" | "council" | "mission" | "runs" | "knowledge" | "analytics" | "evals" | "persona" | "schedules" | "settings" | "guide";
+export type Tab = "chat" | "council" | "mission" | "runs" | "knowledge" | "analytics" | "evals" | "persona" | "schedules" | "audit" | "settings" | "guide";
 
 export const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -15,6 +15,7 @@ export const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "evals", label: "Evals", icon: FlaskConical },
   { id: "persona", label: "Persona & Skills", icon: Sparkles },
   { id: "schedules", label: "Schedules", icon: Calendar },
+  { id: "audit", label: "Audit", icon: ShieldAlert },
   { id: "settings", label: "Settings", icon: Cog },
   { id: "guide", label: "Guide", icon: BookOpen },
 ];

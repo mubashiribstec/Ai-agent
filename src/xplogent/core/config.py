@@ -149,40 +149,97 @@ def env_path() -> Path:
     return xplogent_home() / ".env"
 
 
-def load_dotenv() -> None:
-    """Load ``~/.xplogent/.env`` into ``os.environ`` without overriding real env."""
+def _read_env_file() -> dict[str, str]:
     path = env_path()
+    out: dict[str, str] = {}
     if not path.exists():
-        return
+        return out
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip().strip('"').strip("'")
+        out[key.strip()] = value.strip().strip('"').strip("'")
+    return out
+
+
+_secrets_migrated = False
+
+
+def _migrate_plaintext_secrets() -> None:
+    """One-time: lift plaintext ``.env`` provider keys into the encrypted store
+    and strip them from disk, so secrets aren't left in cleartext at rest."""
+    global _secrets_migrated
+    if _secrets_migrated:
+        return
+    _secrets_migrated = True
+    try:
+        from xplogent.core import secrets as _sec
+
+        if not _sec.available():
+            return
+        env = _read_env_file()
+        leaked = {k: v for k, v in env.items() if k in _SECRET_KEYS and v}
+        if not leaked:
+            return
+        if _sec.write_secrets(leaked):
+            # Rewrite .env keeping only non-secret entries.
+            kept = {k: v for k, v in env.items() if k not in _SECRET_KEYS}
+            path = env_path()
+            if kept:
+                path.write_text("\n".join(f"{k}={v}" for k, v in kept.items()) + "\n",
+                                encoding="utf-8")
+            elif path.exists():
+                path.unlink()
+    except Exception:  # noqa: BLE001 - migration must never break startup
+        pass
+
+
+def load_dotenv() -> None:
+    """Load secrets into ``os.environ`` without overriding real env vars.
+
+    Reads the encrypted secrets store first (the system of record), then any
+    remaining plaintext ``~/.xplogent/.env`` entries for backward compatibility.
+    """
+    try:
+        from xplogent.core import secrets as _sec
+
+        _sec.load_into_env(_SECRET_KEYS)
+    except Exception:  # noqa: BLE001
+        pass
+    for key, value in _read_env_file().items():
         if key and key not in os.environ:
             os.environ[key] = value
+    _migrate_plaintext_secrets()
 
 
 def save_env(updates: dict[str, str]) -> None:
-    """Merge ``KEY=VALUE`` pairs into ``~/.xplogent/.env`` (creating it)."""
-    path = env_path()
-    existing: dict[str, str] = {}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if "=" in line and not line.strip().startswith("#"):
-                k, _, v = line.partition("=")
-                existing[k.strip()] = v.strip()
+    """Persist ``KEY=VALUE`` pairs. Provider keys go to the encrypted store;
+    everything else is merged into ``~/.xplogent/.env``."""
+    from xplogent.core import secrets as _sec
+
+    secret_updates = {k: v for k, v in updates.items() if k in _SECRET_KEYS and v}
+    plain_updates = {k: v for k, v in updates.items() if k not in _SECRET_KEYS}
+
+    encrypted = bool(secret_updates) and _sec.write_secrets(secret_updates)
+    # Anything not stored encrypted (incl. secrets when crypto is unavailable)
+    # still lands in .env so the keys aren't lost.
+    if not encrypted:
+        plain_updates = {**plain_updates, **secret_updates}
     for k, v in updates.items():
         if v:
-            existing[k] = v
             os.environ[k] = v  # reflect immediately in-process
-    body = "\n".join(f"{k}={v}" for k, v in existing.items()) + "\n"
-    path.write_text(body, encoding="utf-8")
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+
+    if plain_updates:
+        existing = _read_env_file()
+        existing.update({k: v for k, v in plain_updates.items() if v})
+        path = env_path()
+        path.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n",
+                        encoding="utf-8")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
 
 
 def secret_status() -> dict[str, bool]:

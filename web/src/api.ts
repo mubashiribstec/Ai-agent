@@ -1,5 +1,36 @@
 // Thin client for the Xplogent backend: REST helpers + a typed WebSocket wrapper.
 
+// ── Access token (enterprise security) ────────────────────────────────────────
+const TOKEN_KEY = "xplogent_token";
+const _origFetch = window.fetch.bind(window);
+
+export function getToken(): string { return localStorage.getItem(TOKEN_KEY) || ""; }
+export function setToken(t: string) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); }
+export function wsTokenParam(): string { const t = getToken(); return t ? `&token=${encodeURIComponent(t)}` : ""; }
+
+// Inject the bearer token into every same-origin request so existing call sites
+// don't each need to know about auth.
+window.fetch = ((input: RequestInfo | URL, init: RequestInit = {}) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const sameOrigin = url.startsWith("/") || url.startsWith(location.origin);
+  const tok = getToken();
+  if (sameOrigin && tok) {
+    const headers = new Headers(init.headers);
+    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${tok}`);
+    init = { ...init, headers };
+  }
+  return _origFetch(input as RequestInfo, init);
+}) as typeof fetch;
+
+// Validate a token (or the absence of auth) without going through the wrapper,
+// so we can test a freshly typed token before storing it.
+export async function checkAuth(token?: string): Promise<{ required: boolean; ok: boolean }> {
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  try { return await (await _origFetch("/auth/check", { headers })).json(); }
+  catch { return { required: false, ok: true }; }
+}
+
 export interface XplogentEvent {
   type: string;
   [key: string]: unknown;
@@ -47,9 +78,9 @@ export class XplogentSocket {
 
   private connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const qs = this.sessionId ? `?session_id=${this.sessionId}` : "";
+    const qs = this.sessionId ? `?session_id=${this.sessionId}` : "?";
     this.onStatus?.("connecting");
-    this.ws = new WebSocket(`${proto}://${location.host}/ws${qs}`);
+    this.ws = new WebSocket(`${proto}://${location.host}/ws${qs}${wsTokenParam()}`);
     this.ws.onopen = () => { this.retries = 0; this.onStatus?.("online"); };
     this.ws.onmessage = (m) => this.onEvent(JSON.parse(m.data) as XplogentEvent);
     this.ws.onclose = () => {
@@ -222,6 +253,18 @@ export async function runEval(id: number): Promise<any> {
 }
 export async function deleteEval(id: number) {
   await fetch(`/evals/${id}`, { method: "DELETE" });
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+export interface AuditEntry {
+  actor: string; action: string; target: string; risk: string;
+  allowed: number | null; detail: string; created_at: number;
+}
+export async function getAudit(action = "", risk = ""): Promise<{ entries: AuditEntry[] }> {
+  const qs = new URLSearchParams();
+  if (action) qs.set("action", action);
+  if (risk) qs.set("risk", risk);
+  return (await fetch(`/audit?${qs.toString()}`)).json();
 }
 
 // ── Skills hub ────────────────────────────────────────────────────────────────
@@ -402,7 +445,7 @@ export class MonitorSocket {
 
   constructor(runId: string, onEvent: (ev: XplogentEvent) => void) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    this.ws = new WebSocket(`${proto}://${location.host}/ws/monitor?run_id=${runId}`);
+    this.ws = new WebSocket(`${proto}://${location.host}/ws/monitor?run_id=${runId}${wsTokenParam()}`);
     this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
   }
 

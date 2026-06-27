@@ -474,3 +474,11 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .ok-i { color: var(--green); flex-shrink: 0; } .bad-i { color: var(--red); flex-shrink: 0; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lbl-sm { display: block; font-size: var(--fz-sm); color: var(--dim); margin-bottom: 5px; }
+
+/* ── Login / access token ───────────────────────────────────────────────── */
+.modal.login { max-width: 420px; text-align: center; }
+.modal.login h2 { margin: 8px 0 4px; }
+.modal.login .row { text-align: left; }
+.login-icon { width: 56px; height: 56px; margin: 0 auto; display: grid; place-items: center;
+  border-radius: var(--r-full); background: var(--accent-weak); color: var(--accent); }
+.err { color: var(--red); font-size: var(--fz-sm); }

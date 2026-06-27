@@ -172,6 +172,22 @@ def up(port: int = 8765, host: str = "127.0.0.1", no_browser: bool = False) -> N
 
 
 @app.command()
+def token(clear: bool = typer.Option(False, "--clear", help="Disable the access token.")) -> None:
+    """Generate (or clear) the dashboard access token for remote/secure access."""
+    if clear:
+        save_user_config({"server": {"auth_token": ""}})
+        console.print("[yellow]access token cleared[/] — the dashboard is now open on this host.")
+        return
+    import secrets as _pysecrets
+
+    tok = _pysecrets.token_urlsafe(32)
+    save_user_config({"server": {"auth_token": tok}})
+    console.print(Panel(tok, title="🔐 dashboard access token", border_style="green"))
+    console.print("[dim]Paste this when the dashboard prompts. Re-run to rotate; "
+                  "`xplogent token --clear` to disable.[/]")
+
+
+@app.command()
 def start(port: int = 8765, host: str = "127.0.0.1") -> None:
     """Run Xplogent in the background (survives closing the terminal)."""
     import time as _time
