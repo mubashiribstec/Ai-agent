@@ -1,9 +1,9 @@
 import {
   Activity, BarChart3, BookOpen, BookText, Calendar, FlaskConical, GitBranch, LayoutGrid, type LucideIcon,
-  MessageSquare, Monitor, Moon, Network, Settings as Cog, ShieldAlert, Sparkles, Sun, Users,
+  MessageSquare, Monitor, Moon, Network, Settings as Cog, ShieldAlert, Sparkles, Sun, Users, Zap,
 } from "lucide-react";
 
-export type Tab = "chat" | "council" | "mission" | "operator" | "runs" | "knowledge" | "graph" | "workflows" | "analytics" | "evals" | "persona" | "schedules" | "audit" | "settings" | "guide";
+export type Tab = "chat" | "council" | "mission" | "operator" | "runs" | "knowledge" | "graph" | "workflows" | "analytics" | "evals" | "persona" | "schedules" | "triggers" | "audit" | "settings" | "guide";
 
 export const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -18,6 +18,7 @@ export const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "evals", label: "Evals", icon: FlaskConical },
   { id: "persona", label: "Persona & Skills", icon: Sparkles },
   { id: "schedules", label: "Schedules", icon: Calendar },
+  { id: "triggers", label: "Triggers", icon: Zap },
   { id: "audit", label: "Audit", icon: ShieldAlert },
   { id: "settings", label: "Settings", icon: Cog },
   { id: "guide", label: "Guide", icon: BookOpen },

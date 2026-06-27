@@ -16,6 +16,7 @@ import { Audit } from "./views/Audit";
 import { Graph } from "./views/Graph";
 import { Workflows } from "./views/Workflows";
 import { Operator } from "./views/Operator";
+import { Triggers } from "./views/Triggers";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -109,6 +110,7 @@ export function App() {
         {tab === "evals" && <Evals />}
         {tab === "persona" && <Persona />}
         {tab === "schedules" && <Schedules />}
+        {tab === "triggers" && <Triggers />}
         {tab === "audit" && <Audit />}
         {tab === "settings" && <Settings />}
         {tab === "guide" && <Guide />}

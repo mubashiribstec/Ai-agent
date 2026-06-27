@@ -531,6 +531,11 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .bud { display: flex; flex-direction: column; gap: 3px; }
 .bud input, .bud select { width: 150px; }
 
+/* ── Triggers ───────────────────────────────────────────────────────────── */
+.linkx { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 4px;
+  display: inline-flex; align-items: center; vertical-align: middle; }
+.icon-btn.off { color: var(--faint); opacity: 0.6; }
+
 /* ── Voice ──────────────────────────────────────────────────────────────── */
 .icon-btn.rec { color: var(--red); animation: rec-pulse 1.1s ease-in-out infinite; }
 @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }

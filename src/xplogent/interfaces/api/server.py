@@ -48,11 +48,16 @@ def create_app():
             sched = Scheduler(cfg, tick=float(cfg.scheduler.get("tick_seconds", 30)))
             await sched.start()
             app.state.scheduler = sched
+        from xplogent.core.triggers import FileWatcher
+        watcher = FileWatcher(cfg, tick=float(cfg.scheduler.get("file_tick_seconds", 5)))
+        await watcher.start()
+        app.state.watcher = watcher
         try:
             yield
         finally:
             if sched is not None:
                 await sched.stop()
+            await watcher.stop()
 
     import hmac
 
@@ -76,6 +81,9 @@ def create_app():
 
     def _is_public(path: str, method: str) -> bool:
         if path in ("/health", "/auth/check"):
+            return True
+        # Inbound webhooks authenticate via their secret token in the path.
+        if path.startswith("/triggers/webhook/"):
             return True
         return method == "GET" and (
             path == "/" or path.startswith("/assets") or path.endswith(_STATIC_EXT))
@@ -962,6 +970,61 @@ def create_app():
         merged = save_user_config({"budget": body})
         _audit_event("budget_change", target=",".join(str(k) for k in body.keys()))
         return {"ok": True, "budget": merged.get("budget", {})}
+
+    # ── Proactive triggers (webhook + file-watch) ────────────────────────────
+    @app.get("/triggers")
+    async def list_triggers() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_triggers()
+        store.close()
+        return {"triggers": out}
+
+    @app.post("/triggers")
+    async def create_trigger(body: dict) -> dict:
+        ttype = str(body.get("type", "webhook"))
+        # Webhook triggers get a random secret token as their spec.
+        spec = str(body.get("spec", ""))
+        if ttype == "webhook" and not spec:
+            spec = uuid.uuid4().hex
+        store = Store(load_config().db_path)
+        tid = store.add_trigger(str(body.get("name", "trigger")), ttype, spec,
+                                str(body.get("prompt", "")), str(body.get("mode", "agent")))
+        out = store.get_trigger(tid)
+        store.close()
+        _audit_event("trigger_create", target=str(body.get("name", "")), risk="medium")
+        return {"ok": True, "trigger": out}
+
+    @app.post("/triggers/{trigger_id}/toggle")
+    async def toggle_trigger(trigger_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.toggle_trigger(trigger_id)
+        store.close()
+        return {"ok": True}
+
+    @app.delete("/triggers/{trigger_id}")
+    async def delete_trigger(trigger_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_trigger(trigger_id)
+        store.close()
+        return {"ok": True}
+
+    @app.post("/triggers/webhook/{token}")
+    async def fire_webhook(token: str, request: Request) -> dict:
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        trig = store.get_trigger_by_token(token)
+        store.close()
+        if not trig or not trig.get("enabled"):
+            return JSONResponse({"error": "unknown or disabled webhook"}, status_code=404)
+        try:
+            body = (await request.body()).decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        from xplogent.core.triggers import run_trigger
+
+        # Fire-and-forget so the caller gets a fast 202.
+        asyncio.create_task(run_trigger(trig, context=body, config=cfg))
+        return {"ok": True, "fired": trig["name"]}
 
     # ── Evals ────────────────────────────────────────────────────────────────
     @app.get("/evals")

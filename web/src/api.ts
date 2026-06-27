@@ -307,6 +307,20 @@ export async function deleteWorkflow(id: number) {
   await fetch(`/workflows/${id}`, { method: "DELETE" });
 }
 
+// ── Proactive triggers ────────────────────────────────────────────────────────
+export interface Trigger {
+  id: number; name: string; type: "webhook" | "file"; spec: string;
+  prompt: string; mode: string; enabled: number; last_fired: number | null; last_status: string | null;
+}
+export async function getTriggers(): Promise<{ triggers: Trigger[] }> {
+  return (await fetch("/triggers")).json();
+}
+export async function createTrigger(body: { name: string; type: string; prompt: string; spec?: string; mode?: string }): Promise<{ ok: boolean; trigger: Trigger }> {
+  return (await fetch("/triggers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
+export async function toggleTrigger(id: number) { await fetch(`/triggers/${id}/toggle`, { method: "POST" }); }
+export async function deleteTrigger(id: number) { await fetch(`/triggers/${id}`, { method: "DELETE" }); }
+
 // ── Audit log ─────────────────────────────────────────────────────────────────
 export interface AuditEntry {
   actor: string; action: string; target: string; risk: string;

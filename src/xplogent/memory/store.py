@@ -167,6 +167,18 @@ CREATE TABLE IF NOT EXISTS workflows (
     created_at REAL,
     updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS triggers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    type TEXT,
+    spec TEXT,
+    prompt TEXT,
+    mode TEXT,
+    enabled INTEGER DEFAULT 1,
+    last_fired REAL,
+    last_status TEXT,
+    created_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
@@ -755,6 +767,35 @@ class Store:
 
     def delete_workflow(self, workflow_id: int) -> None:
         self._write("DELETE FROM workflows WHERE id=?", (workflow_id,))
+
+    # -- proactive triggers ----------------------------------------------------
+    def add_trigger(self, name: str, type_: str, spec: str, prompt: str,
+                    mode: str = "agent") -> int:
+        cur = self._write(
+            "INSERT INTO triggers (name, type, spec, prompt, mode, enabled, created_at) "
+            "VALUES (?,?,?,?,?,1,?)", (name, type_, spec, prompt, mode, time.time()))
+        return int(cur.lastrowid)
+
+    def list_triggers(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query("SELECT * FROM triggers ORDER BY id DESC")]
+
+    def get_trigger(self, trigger_id: int) -> dict[str, Any] | None:
+        rows = self._query("SELECT * FROM triggers WHERE id=?", (trigger_id,))
+        return dict(rows[0]) if rows else None
+
+    def get_trigger_by_token(self, token: str) -> dict[str, Any] | None:
+        rows = self._query("SELECT * FROM triggers WHERE type='webhook' AND spec=?", (token,))
+        return dict(rows[0]) if rows else None
+
+    def set_trigger_fired(self, trigger_id: int, status: str) -> None:
+        self._write("UPDATE triggers SET last_fired=?, last_status=? WHERE id=?",
+                    (time.time(), status, trigger_id))
+
+    def toggle_trigger(self, trigger_id: int) -> None:
+        self._write("UPDATE triggers SET enabled = 1 - enabled WHERE id=?", (trigger_id,))
+
+    def delete_trigger(self, trigger_id: int) -> None:
+        self._write("DELETE FROM triggers WHERE id=?", (trigger_id,))
 
     def close(self) -> None:
         with self._lock:
