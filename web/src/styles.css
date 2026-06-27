@@ -487,6 +487,46 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .kg-label { fill: var(--text); font-size: 11px; text-anchor: middle; pointer-events: none; }
 .dim-node { opacity: 0.25; } .dim-edge { opacity: 0.12; }
 
+/* ── Visual workflow builder ────────────────────────────────────────────── */
+.wf { display: grid; grid-template-columns: 220px 1fr; height: 100%; overflow: hidden; }
+.wf:has(.wf-inspect) { grid-template-columns: 220px 1fr 300px; }
+.wf-side { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.wf-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+.wf-item { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: var(--r2);
+  cursor: pointer; font-size: var(--fz-sm); }
+.wf-item:hover { background: var(--panel); } .wf-item.active { background: var(--accent-weak); color: var(--accent); }
+.wf-item .x { background: none; border: none; color: var(--dim); cursor: pointer; opacity: 0; }
+.wf-item:hover .x { opacity: 1; }
+.wf-palette { border-top: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.wf-palette .btn { justify-content: flex-start; }
+.wf-main { display: flex; flex-direction: column; min-width: 0; }
+.wf-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.wf-bar .spacer { flex: 1; }
+.wf-canvas { position: relative; flex: 1; overflow: auto; background:
+  radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 22px 22px; }
+.wf-edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.wf-edge { stroke: var(--border-strong); stroke-width: 1.6; fill: none; }
+.wf-edges marker path { fill: var(--border-strong); }
+.wf-node { position: absolute; width: 180px; background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--r2); box-shadow: var(--shadow-2); font-size: var(--fz-sm); }
+.wf-node.sel { border-color: var(--accent); }
+.wf-node.done { border-left: 3px solid var(--green); } .wf-node.error { border-left: 3px solid var(--red); }
+.wf-node.running { border-left: 3px solid var(--accent); }
+.wf-node-head { display: flex; align-items: center; gap: 6px; padding: 7px 9px; cursor: grab;
+  border-bottom: 1px solid var(--border); }
+.wf-node.agent .wf-node-head { color: var(--magenta); } .wf-node.tool .wf-node-head { color: var(--cyan); }
+.wf-node-body { padding: 7px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-conn { position: absolute; right: -10px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px;
+  border-radius: 50%; border: 1px solid var(--border-strong); background: var(--bg-elev); color: var(--dim);
+  font-size: 11px; cursor: pointer; }
+.wf-conn:hover { color: var(--accent); border-color: var(--accent); }
+.wf-out { padding: 6px 9px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px;
+  max-height: 64px; overflow: hidden; }
+.wf-inspect { border-left: 1px solid var(--border); padding: 14px; overflow-y: auto; }
+.wf-inspect input, .wf-inspect textarea { width: 100%; }
+.wf-result { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r2);
+  padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 200px; overflow: auto; }
+
 /* ── Login / access token ───────────────────────────────────────────────── */
 .modal.login { max-width: 420px; text-align: center; }
 .modal.login h2 { margin: 8px 0 4px; }

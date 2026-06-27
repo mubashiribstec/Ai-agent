@@ -262,6 +262,26 @@ export async function getGraph(limit = 300): Promise<{ nodes: GraphNode[]; edges
   return (await fetch(`/graph?limit=${limit}`)).json();
 }
 
+// ── Visual workflows ──────────────────────────────────────────────────────────
+export interface WfNode { id: string; type: "input" | "agent" | "tool"; name: string; x: number; y: number; config: Record<string, any>; }
+export interface WfEdge { from: string; to: string; }
+export interface WfGraph { nodes: WfNode[]; edges: WfEdge[]; }
+export interface Workflow { id: number; name: string; graph: WfGraph; updated_at: number; }
+export interface WfResult { node_id: string; name: string; status: string; output: string; }
+
+export async function getWorkflows(): Promise<{ workflows: Workflow[] }> {
+  return (await fetch("/workflows")).json();
+}
+export async function saveWorkflow(body: { id?: number; name: string; graph: WfGraph }): Promise<{ ok: boolean; workflow: Workflow }> {
+  return (await fetch("/workflows", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
+export async function runWorkflow(id: number): Promise<{ ok: boolean; error?: string; results: WfResult[] }> {
+  return (await fetch(`/workflows/${id}/run`, { method: "POST" })).json();
+}
+export async function deleteWorkflow(id: number) {
+  await fetch(`/workflows/${id}`, { method: "DELETE" });
+}
+
 // ── Audit log ─────────────────────────────────────────────────────────────────
 export interface AuditEntry {
   actor: string; action: string; target: string; risk: string;

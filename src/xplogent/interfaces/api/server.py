@@ -832,6 +832,42 @@ def create_app():
         store.close()
         return {"entity": entity, "edges": rows}
 
+    # ── Visual workflows ─────────────────────────────────────────────────────
+    @app.get("/workflows")
+    async def list_workflows() -> dict:
+        store = Store(load_config().db_path)
+        out = store.list_workflows()
+        store.close()
+        return {"workflows": out}
+
+    @app.post("/workflows")
+    async def save_workflow(body: dict) -> dict:
+        store = Store(load_config().db_path)
+        wid = store.save_workflow(str(body.get("name", "workflow")),
+                                  body.get("graph", {}), body.get("id"))
+        out = store.get_workflow(wid)
+        store.close()
+        return {"ok": True, "workflow": out}
+
+    @app.delete("/workflows/{workflow_id}")
+    async def delete_workflow(workflow_id: int) -> dict:
+        store = Store(load_config().db_path)
+        store.delete_workflow(workflow_id)
+        store.close()
+        return {"ok": True}
+
+    @app.post("/workflows/{workflow_id}/run")
+    async def run_workflow_ep(workflow_id: int) -> dict:
+        from xplogent.core.workflow import run_workflow
+
+        store = Store(load_config().db_path)
+        wf = store.get_workflow(workflow_id)
+        store.close()
+        if not wf:
+            return {"ok": False, "error": "workflow not found"}
+        _audit_event("workflow_run", target=wf.get("name", str(workflow_id)))
+        return await run_workflow(wf["graph"])
+
     # ── Evals ────────────────────────────────────────────────────────────────
     @app.get("/evals")
     async def list_evals() -> dict:

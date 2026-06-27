@@ -160,6 +160,13 @@ CREATE TABLE IF NOT EXISTS kg_edges (
     created_at REAL,
     UNIQUE(subject, relation, object)
 );
+CREATE TABLE IF NOT EXISTS workflows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    graph TEXT,
+    created_at REAL,
+    updated_at REAL
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
@@ -715,6 +722,39 @@ class Store:
 
     def kg_node_names(self) -> list[str]:
         return [r["name"] for r in self._query("SELECT name FROM kg_nodes")]
+
+    # -- workflows -------------------------------------------------------------
+    def save_workflow(self, name: str, graph: dict, workflow_id: int | None = None) -> int:
+        now = time.time()
+        blob = json.dumps(graph)
+        if workflow_id:
+            self._write("UPDATE workflows SET name=?, graph=?, updated_at=? WHERE id=?",
+                        (name, blob, now, workflow_id))
+            return workflow_id
+        cur = self._write(
+            "INSERT INTO workflows (name, graph, created_at, updated_at) VALUES (?,?,?,?)",
+            (name, blob, now, now))
+        return int(cur.lastrowid)
+
+    def list_workflows(self) -> list[dict[str, Any]]:
+        out = []
+        for r in self._query("SELECT id, name, graph, updated_at FROM workflows ORDER BY id DESC"):
+            d = dict(r)
+            d["graph"] = json.loads(d["graph"] or "{}")
+            out.append(d)
+        return out
+
+    def get_workflow(self, workflow_id: int) -> dict[str, Any] | None:
+        rows = self._query("SELECT id, name, graph, updated_at FROM workflows WHERE id=?",
+                           (workflow_id,))
+        if not rows:
+            return None
+        d = dict(rows[0])
+        d["graph"] = json.loads(d["graph"] or "{}")
+        return d
+
+    def delete_workflow(self, workflow_id: int) -> None:
+        self._write("DELETE FROM workflows WHERE id=?", (workflow_id,))
 
     def close(self) -> None:
         with self._lock:
