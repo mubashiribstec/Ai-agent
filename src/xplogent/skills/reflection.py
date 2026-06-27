@@ -21,6 +21,7 @@ Return ONLY a JSON object with this shape:
 {
   "success": true/false,
   "facts": ["short durable facts about the user, environment, or preferences"],
+  "relations": [["subject", "relation", "object"]],
   "skill": {
      "name": "snake_case_name",
      "description": "one sentence: when to use this skill",
@@ -29,6 +30,9 @@ Return ONLY a JSON object with this shape:
 }
 Rules:
 - "facts" may be empty. Only include genuinely durable, reusable facts.
+- "relations" may be empty. Each is a [subject, relation, object] triple capturing a
+  durable connection (e.g. ["Alice", "manages", "project Phoenix"], ["user", "prefers", "dark mode"]).
+  Use concise canonical entity names. Skip trivia.
 - Include "skill" ONLY if a clearly repeatable, non-trivial procedure was used; otherwise set it to null.
 - Do not wrap the JSON in markdown fences."""
 
@@ -44,6 +48,7 @@ class SkillDraft:
 class ReflectionResult:
     success: bool = True
     facts: list[str] = field(default_factory=list)
+    relations: list[tuple[str, str, str]] = field(default_factory=list)
     skill: SkillDraft | None = None
 
 
@@ -87,4 +92,9 @@ class Reflector:
                 body=str(raw_skill["body"]),
             )
         facts = [str(f) for f in data.get("facts", []) if str(f).strip()]
-        return ReflectionResult(success=bool(data.get("success", True)), facts=facts, skill=skill)
+        relations: list[tuple[str, str, str]] = []
+        for r in data.get("relations", []):
+            if isinstance(r, (list, tuple)) and len(r) == 3 and all(str(x).strip() for x in r):
+                relations.append((str(r[0]).strip(), str(r[1]).strip(), str(r[2]).strip()))
+        return ReflectionResult(success=bool(data.get("success", True)), facts=facts,
+                                relations=relations, skill=skill)

@@ -817,6 +817,21 @@ def create_app():
         store.close()
         return {"entries": rows}
 
+    # ── Knowledge graph ──────────────────────────────────────────────────────
+    @app.get("/graph")
+    async def graph(limit: int = 300) -> dict:
+        store = Store(load_config().db_path)
+        snap = store.graph_snapshot(limit=limit)
+        store.close()
+        return snap
+
+    @app.get("/graph/neighbors")
+    async def graph_neighbors(entity: str) -> dict:
+        store = Store(load_config().db_path)
+        rows = store.neighbors(entity, limit=50)
+        store.close()
+        return {"entity": entity, "edges": rows}
+
     # ── Evals ────────────────────────────────────────────────────────────────
     @app.get("/evals")
     async def list_evals() -> dict:

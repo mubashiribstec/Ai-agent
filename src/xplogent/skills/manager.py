@@ -25,6 +25,12 @@ class SkillManager:
         for fact in result.facts:
             await self.memory.remember(fact, source="reflection")
 
+        relations = 0
+        if result.relations:
+            from xplogent.memory.graph import ingest_relations
+
+            relations = ingest_relations(self.memory.store, result.relations, source="reflection")
+
         skill_name: str | None = None
         if result.skill:
             await self.memory.save_skill(
@@ -33,7 +39,7 @@ class SkillManager:
             self._write_markdown(result.skill.name, result.skill.description, result.skill.body)
             skill_name = result.skill.name
 
-        return {"facts": len(result.facts), "skill": skill_name}
+        return {"facts": len(result.facts), "relations": relations, "skill": skill_name}
 
     def _write_markdown(self, name: str, description: str, body: str) -> None:
         from xplogent.skills.pack import render_skill_md

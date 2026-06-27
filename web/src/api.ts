@@ -255,6 +255,13 @@ export async function deleteEval(id: number) {
   await fetch(`/evals/${id}`, { method: "DELETE" });
 }
 
+// ── Knowledge graph ───────────────────────────────────────────────────────────
+export interface GraphNode { name: string; type: string; mentions: number; }
+export interface GraphEdge { subject: string; relation: string; object: string; }
+export async function getGraph(limit = 300): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  return (await fetch(`/graph?limit=${limit}`)).json();
+}
+
 // ── Audit log ─────────────────────────────────────────────────────────────────
 export interface AuditEntry {
   actor: string; action: string; target: string; risk: string;

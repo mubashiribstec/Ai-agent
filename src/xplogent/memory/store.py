@@ -144,12 +144,30 @@ CREATE TABLE IF NOT EXISTS audit (
     detail TEXT,
     created_at REAL
 );
+CREATE TABLE IF NOT EXISTS kg_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE,
+    type TEXT,
+    mentions INTEGER DEFAULT 1,
+    created_at REAL
+);
+CREATE TABLE IF NOT EXISTS kg_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject TEXT,
+    relation TEXT,
+    object TEXT,
+    source TEXT,
+    created_at REAL,
+    UNIQUE(subject, relation, object)
+);
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 CREATE INDEX IF NOT EXISTS idx_msgs_run ON agent_messages(run_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id);
 CREATE INDEX IF NOT EXISTS idx_cases_eval ON eval_cases(eval_id);
 CREATE INDEX IF NOT EXISTS idx_evalruns_eval ON eval_runs(eval_id);
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit(created_at);
+CREATE INDEX IF NOT EXISTS idx_kg_edge_subj ON kg_edges(subject);
+CREATE INDEX IF NOT EXISTS idx_kg_edge_obj ON kg_edges(object);
 """
 
 
@@ -660,6 +678,43 @@ class Store:
         sql += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         return [dict(r) for r in self._query(sql, tuple(params))]
+
+    # -- knowledge graph -------------------------------------------------------
+    def upsert_node(self, name: str, type_: str = "") -> None:
+        existing = self._query("SELECT id, type FROM kg_nodes WHERE name=?", (name,))
+        if existing:
+            self._write("UPDATE kg_nodes SET mentions = mentions + 1, "
+                        "type = COALESCE(NULLIF(type,''), ?) WHERE name=?", (type_, name))
+        else:
+            self._write("INSERT INTO kg_nodes (name, type, mentions, created_at) VALUES (?,?,1,?)",
+                        (name, type_, time.time()))
+
+    def add_edge(self, subject: str, relation: str, object_: str, source: str = "") -> None:
+        self.upsert_node(subject)
+        self.upsert_node(object_)
+        self._write(
+            "INSERT OR IGNORE INTO kg_edges (subject, relation, object, source, created_at) "
+            "VALUES (?,?,?,?,?)", (subject, relation, object_, source, time.time()))
+
+    def graph_snapshot(self, limit: int = 300) -> dict[str, list[dict[str, Any]]]:
+        nodes = [dict(r) for r in self._query(
+            "SELECT name, type, mentions FROM kg_nodes ORDER BY mentions DESC LIMIT ?", (limit,))]
+        keep = {n["name"] for n in nodes}
+        edges = []
+        for r in self._query("SELECT subject, relation, object FROM kg_edges ORDER BY id DESC LIMIT ?",
+                             (limit * 2,)):
+            d = dict(r)
+            if d["subject"] in keep and d["object"] in keep:
+                edges.append(d)
+        return {"nodes": nodes, "edges": edges}
+
+    def neighbors(self, entity: str, limit: int = 12) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT subject, relation, object FROM kg_edges "
+            "WHERE subject=? OR object=? ORDER BY id DESC LIMIT ?", (entity, entity, limit))]
+
+    def kg_node_names(self) -> list[str]:
+        return [r["name"] for r in self._query("SELECT name FROM kg_nodes")]
 
     def close(self) -> None:
         with self._lock:

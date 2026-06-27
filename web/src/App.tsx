@@ -13,6 +13,7 @@ import { Knowledge } from "./views/Knowledge";
 import { Analytics } from "./views/Analytics";
 import { Evals } from "./views/Evals";
 import { Audit } from "./views/Audit";
+import { Graph } from "./views/Graph";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -99,6 +100,7 @@ export function App() {
         {tab === "mission" && <MissionControl />}
         {tab === "runs" && <Runs />}
         {tab === "knowledge" && <Knowledge />}
+        {tab === "graph" && <Graph />}
         {tab === "analytics" && <Analytics />}
         {tab === "evals" && <Evals />}
         {tab === "persona" && <Persona />}
