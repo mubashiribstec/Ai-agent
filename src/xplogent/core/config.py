@@ -37,17 +37,26 @@ def install_root() -> Path | None:
 
 _migrated = False
 
+# Hardcoded data directory for memory + skills on the target Windows machine.
+# This is the single source of truth on Windows. ``XPLOGENT_HOME`` still wins so
+# tests/CI can redirect it; on non-Windows we fall back to the install folder so
+# the framework also runs on Linux/containers.
+_WINDOWS_DATA = Path(r"C:\Users\IBSTEC-DEV\.xplogent")
+
 
 def data_dir() -> Path:
-    """Fixed location for **skills + memory** — inside the install folder.
+    """Fixed location for **skills + memory**.
 
-    ``XPLOGENT_HOME`` still overrides (used by tests/advanced setups). When the
-    framework isn't a source/repo install (no pyproject/.git found), falls back to
-    ``~/.xplogent`` so wheel installs keep working.
+    On Windows this is the hardcoded ``C:\\Users\\IBSTEC-DEV\\.xplogent``.
+    ``XPLOGENT_HOME`` still overrides everywhere (used by tests/advanced setups).
+    On non-Windows it falls back to the install folder, or ``~/.xplogent`` for
+    wheel installs with no source tree.
     """
     env = os.environ.get("XPLOGENT_HOME")
     if env:
         base = Path(env)
+    elif os.name == "nt":
+        base = _WINDOWS_DATA
     else:
         root = install_root()
         base = (root / "data") if root else xplogent_home()
