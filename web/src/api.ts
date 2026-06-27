@@ -110,6 +110,22 @@ export class XplogentSocket {
   close() { this.closed = true; this.ws.close(); }
 }
 
+// Computer-use operator: drives the screen in a screenshot→analyze→act loop.
+export class OperatorSocket {
+  private ws: WebSocket;
+  constructor(onEvent: (ev: XplogentEvent) => void, onClose?: () => void) {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    this.ws = new WebSocket(`${proto}://${location.host}/ws/operator?${wsTokenParam()}`);
+    this.ws.onmessage = (m) => onEvent(JSON.parse(m.data) as XplogentEvent);
+    this.ws.onclose = () => onClose?.();
+  }
+  private send(o: unknown) { if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(o)); }
+  start(goal: string, maxSteps = 30) { this.send({ type: "start", goal, max_steps: maxSteps }); }
+  cancel() { this.send({ type: "cancel" }); }
+  resolveApproval(id: string, allowed: boolean) { this.send({ type: "approval", id, allowed }); }
+  close() { this.ws.close(); }
+}
+
 // ── Multi-agent orchestration + monitoring ────────────────────────────────────
 export interface OrchestrateOptions {
   goal?: string;

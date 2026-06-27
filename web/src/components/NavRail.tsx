@@ -1,14 +1,15 @@
 import {
   Activity, BarChart3, BookOpen, BookText, Calendar, FlaskConical, GitBranch, LayoutGrid, type LucideIcon,
-  MessageSquare, Moon, Network, Settings as Cog, ShieldAlert, Sparkles, Sun, Users,
+  MessageSquare, Monitor, Moon, Network, Settings as Cog, ShieldAlert, Sparkles, Sun, Users,
 } from "lucide-react";
 
-export type Tab = "chat" | "council" | "mission" | "runs" | "knowledge" | "graph" | "workflows" | "analytics" | "evals" | "persona" | "schedules" | "audit" | "settings" | "guide";
+export type Tab = "chat" | "council" | "mission" | "operator" | "runs" | "knowledge" | "graph" | "workflows" | "analytics" | "evals" | "persona" | "schedules" | "audit" | "settings" | "guide";
 
 export const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "council", label: "Council", icon: Users },
   { id: "mission", label: "Mission Control", icon: LayoutGrid },
+  { id: "operator", label: "Operator", icon: Monitor },
   { id: "runs", label: "Runs", icon: Activity },
   { id: "knowledge", label: "Knowledge", icon: BookText },
   { id: "graph", label: "Knowledge Graph", icon: Network },

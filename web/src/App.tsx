@@ -15,6 +15,7 @@ import { Evals } from "./views/Evals";
 import { Audit } from "./views/Audit";
 import { Graph } from "./views/Graph";
 import { Workflows } from "./views/Workflows";
+import { Operator } from "./views/Operator";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
 import { Schedules } from "./Schedules";
@@ -99,6 +100,7 @@ export function App() {
         {tab === "chat" && <Chat />}
         {tab === "council" && <Council />}
         {tab === "mission" && <MissionControl />}
+        {tab === "operator" && <Operator />}
         {tab === "runs" && <Runs />}
         {tab === "knowledge" && <Knowledge />}
         {tab === "graph" && <Graph />}

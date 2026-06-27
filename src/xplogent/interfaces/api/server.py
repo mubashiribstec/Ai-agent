@@ -453,6 +453,84 @@ def create_app():
             if current["runtime"] is not None:
                 await current["runtime"].aclose()
 
+    # ── Computer-use operator ────────────────────────────────────────────────
+    @app.websocket("/ws/operator")
+    async def ws_operator(websocket: WebSocket) -> None:
+        if not _ws_authorized(websocket):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        bus = EventBus()
+        loop = asyncio.get_event_loop()
+        pending: dict[str, asyncio.Future] = {}
+        runtime_box: dict = {"rt": None}
+
+        async def approve(reqo: ApprovalRequest) -> bool:
+            approval_id = uuid.uuid4().hex[:8]
+            fut: asyncio.Future = loop.create_future()
+            pending[approval_id] = fut
+            await websocket.send_json({
+                "type": "approval_required", "id": approval_id, "tool": reqo.tool,
+                "risk": reqo.risk.value, "reason": reqo.reason, "arguments": reqo.arguments,
+            })
+            try:
+                return await asyncio.wait_for(fut, timeout=300)
+            except TimeoutError:
+                return False
+
+        async def forward() -> None:
+            async for ev in bus.stream():
+                await websocket.send_json({"type": ev.type.value, **ev.data})
+
+        forwarder = asyncio.create_task(forward())
+
+        async def handle(msg: dict) -> None:
+            from xplogent.core.operator import build_operator
+
+            rt = build_operator(bus=bus, approve=approve,
+                                 max_steps=int(msg.get("max_steps", 30)))
+            runtime_box["rt"] = rt
+            try:
+                await rt.agent.run(str(msg.get("goal", "")))
+            finally:
+                await rt.aclose()
+                runtime_box["rt"] = None
+            await websocket.send_json({"type": "done"})
+
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                kind = msg.get("type")
+                if kind == "start":
+                    asyncio.create_task(handle(msg))
+                elif kind == "cancel" and runtime_box["rt"] is not None:
+                    runtime_box["rt"].agent.cancel()
+                elif kind == "approval":
+                    fut = pending.pop(msg.get("id", ""), None)
+                    if fut and not fut.done():
+                        fut.set_result(bool(msg.get("allowed")))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await bus.close()
+            forwarder.cancel()
+            if runtime_box["rt"] is not None:
+                await runtime_box["rt"].aclose()
+
+    @app.get("/operator/screen")
+    async def operator_screen():
+        """Serve the most recent screenshot the operator captured (for a live preview)."""
+        from fastapi.responses import FileResponse, Response
+
+        from xplogent.core.config import xplogent_home
+
+        shots = sorted(xplogent_home().glob("screenshot_*.png"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
+        if not shots:
+            return Response(status_code=204)
+        return FileResponse(str(shots[0]), media_type="image/png",
+                            headers={"Cache-Control": "no-store"})
+
     # ── Multi-agent orchestration + deep monitoring ──────────────────────────
     @app.post("/orchestrate")
     async def orchestrate(req: OrchestrateRequest) -> dict:

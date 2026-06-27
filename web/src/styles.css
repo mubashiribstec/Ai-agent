@@ -527,6 +527,17 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .wf-result { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r2);
   padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 200px; overflow: auto; }
 
+/* ── Operator (computer use) ────────────────────────────────────────────── */
+.op-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+@media (max-width: 760px) { .op-grid { grid-template-columns: 1fr; } }
+.op-feed { max-height: 420px; overflow-y: auto; font-family: var(--mono); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.op-line { padding: 4px 8px; border-radius: var(--r1); background: var(--bg-elev); border-left: 2px solid var(--border-strong); }
+.op-line.act { border-left-color: var(--cyan); } .op-line.obs { border-left-color: var(--accent); }
+.op-line.say { border-left-color: var(--magenta); color: var(--text); } .op-line.err { border-left-color: var(--red); color: var(--red); }
+.op-line.status { color: var(--dim); border-left-color: var(--amber); }
+.op-screen { width: 100%; border-radius: var(--r2); border: 1px solid var(--border); }
+.card.approval { border-color: var(--amber); }
+
 /* ── Login / access token ───────────────────────────────────────────────── */
 .modal.login { max-width: 420px; text-align: center; }
 .modal.login h2 { margin: 8px 0 4px; }
