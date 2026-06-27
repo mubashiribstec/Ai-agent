@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Copy, Download, FileJson, ImagePlus, RotateCcw, Search, Send, Share2, ShieldCheck,
-  Square, Trash2, X,
+  Copy, Download, FileJson, ImagePlus, Mic, MicOff, RotateCcw, Search, Send, Share2, ShieldCheck,
+  Square, Trash2, Volume2, X,
 } from "lucide-react";
 import {
   ApprovalRequest, ConnStatus, XplogentEvent, XplogentSocket,
@@ -14,6 +14,7 @@ import { Markdown } from "../Markdown";
 import { useToast } from "../components/Toast";
 import { CanvasPanel } from "../components/CanvasPanel";
 import { downloadJSON, downloadMarkdown, shareHTML } from "../lib/exportChat";
+import { useVoice } from "../hooks/useVoice";
 
 interface LogLine { kind: "assistant" | "tool" | "result" | "note" | "user"; text: string; ok?: boolean; }
 interface Usage {
@@ -55,6 +56,9 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   const bottom = useRef<HTMLDivElement | null>(null);
   const sessionId = useRef<number | null>(Number(localStorage.getItem("xplogent_session")) || null);
   const [activeId, setActiveId] = useState<number | null>(sessionId.current);
+  const voice = useVoice();
+  const [handsFree, setHandsFree] = useState(false);
+  const handsFreeRef = useRef(false);
 
   const pushAssistantToken = (text: string) =>
     setLog((l) => {
@@ -65,7 +69,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
 
   const handleEvent = (ev: XplogentEvent) => {
     switch (ev.type) {
-      case "token": pushAssistantToken(String(ev.text ?? "")); break;
+      case "token":
+        pushAssistantToken(String(ev.text ?? ""));
+        if (handsFreeRef.current) voice.feed(String(ev.text ?? ""));
+        break;
       case "tool_call":
         setLog((l) => [...l, { kind: "tool", text: `${ev.tool} ${JSON.stringify(ev.arguments ?? {})}` }]); break;
       case "tool_result":
@@ -91,7 +98,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
         setCanvasOpen(true);
         break;
       case "error": toast(String(ev.message ?? "error"), "error"); break;
-      case "done": setBusy(false); refreshSkills(); refreshSessions(); break;
+      case "done":
+        setBusy(false); refreshSkills(); refreshSessions();
+        if (handsFreeRef.current) voice.flush();
+        break;
     }
   };
 
@@ -121,7 +131,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
     connect();
   };
 
-  useEffect(() => { refreshSkills(); refreshSessions(); loadSession(sessionId.current); return () => sock.current?.close(); }, []);
+  useEffect(() => {
+    refreshSkills(); refreshSessions(); loadSession(sessionId.current);
+    return () => { sock.current?.close(); voice.stopListening(); voice.cancelSpeak(); };
+  }, []);
   useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
   const newChat = async () => { const { id } = await newSession(); loadSession(id); refreshSessions(); };
@@ -141,15 +154,33 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
     if (uris.length) setImages((x) => [...x, ...uris]);
   };
 
-  const send = () => {
-    if ((!input.trim() && !images.length) || busy) return;
-    lastTask.current = input;
-    setLog((l) => [...l, { kind: "user", text: input + (images.length ? `  ·  📎 ${images.length} image(s)` : "") }]);
-    sock.current?.sendTask(input, {
+  const sendText = (text: string) => {
+    if ((!text.trim() && !images.length) || busy) return;
+    lastTask.current = text;
+    setLog((l) => [...l, { kind: "user", text: text + (images.length ? `  ·  📎 ${images.length} image(s)` : "") }]);
+    sock.current?.sendTask(text, {
       model: gen.model || undefined, effort: gen.effort, thinking: gen.thinking,
       images: images.length ? images : undefined,
     });
     setInput(""); setImages([]); setBusy(true);
+  };
+  const send = () => sendText(input);
+
+  // Hands-free conversation: speak replies, auto-send finished utterances, barge-in.
+  const toggleHandsFree = () => {
+    const next = !handsFree;
+    setHandsFree(next); handsFreeRef.current = next;
+    if (next) {
+      if (!voice.supported) { toast("voice isn't supported in this browser", "error"); setHandsFree(false); handsFreeRef.current = false; return; }
+      voice.startListening({ onFinal: (t) => sendText(t), onSpeechStart: () => voice.cancelSpeak() });
+      toast("hands-free on — just talk", "success");
+    } else { voice.stopListening(); voice.cancelSpeak(); }
+  };
+  // One-shot dictation into the input box.
+  const toggleDictate = () => {
+    if (!voice.supported) { toast("voice isn't supported in this browser", "error"); return; }
+    if (voice.listening) voice.stopListening();
+    else voice.startListening({ onFinal: (t) => setInput((v) => (v ? v + " " : "") + t) });
   };
   const stop = () => { sock.current?.cancel(); setBusy(false); };
   const regenerate = () => { if (lastTask.current && !busy) { setInput(lastTask.current); setTimeout(send, 0); } };
@@ -221,6 +252,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
             </span>
           )}
           <div style={{ flex: 1 }} />
+          {voice.supported && (
+            <button className={`btn ghost sm ${handsFree ? "active" : ""}`} title="Hands-free voice conversation"
+              onClick={toggleHandsFree}><Volume2 size={15} /> {handsFree ? "Hands-free on" : "Hands-free"}</button>
+          )}
           {canvas && (
             <button className={`btn ghost sm ${canvasOpen ? "active" : ""}`} title="Toggle Canvas"
               onClick={() => setCanvasOpen((o) => !o)}><LayoutDashboard size={15} /> Canvas</button>
@@ -288,9 +323,15 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
               onDrop={(e) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files); }}>
               <button className="icon-btn" style={{ width: 34, height: 34 }} aria-label="attach image"
                 onClick={() => fileRef.current?.click()}><ImagePlus size={18} /></button>
+              {voice.supported && !handsFree && (
+                <button className={`icon-btn ${voice.listening ? "rec" : ""}`} style={{ width: 34, height: 34 }}
+                  aria-label="dictate" title="Dictate with your voice" onClick={toggleDictate}>
+                  {voice.listening ? <MicOff size={18} /> : <Mic size={18} />}</button>
+              )}
               <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }}
                 onChange={(e) => e.target.files && addFiles(e.target.files)} />
-              <textarea rows={1} value={input} placeholder="Message Xplogent…  (Enter to send, Shift+Enter for newline)"
+              <textarea rows={1} value={input + (voice.listening && voice.interim ? ` ${voice.interim}` : "")}
+                placeholder={handsFree ? "Listening… just talk" : "Message Xplogent…  (Enter to send, Shift+Enter for newline)"}
                 onChange={(e) => setInput(e.target.value)}
                 onPaste={(e) => { const imgs = [...e.clipboardData.files]; if (imgs.length) addFiles(imgs); }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
