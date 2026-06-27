@@ -551,6 +551,13 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .op-screen { width: 100%; border-radius: var(--r2); border: 1px solid var(--border); }
 .card.approval { border-color: var(--amber); }
 
+/* ── Evals A/B ──────────────────────────────────────────────────────────── */
+.ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s3); }
+.ab-name { font-weight: 700; font-size: var(--fz-lg); border: none; border-bottom: 1px solid var(--border); border-radius: 0; padding: 4px 2px; }
+.ab-score { margin-top: 10px; padding: 7px 10px; border-radius: var(--r2); background: var(--bg-elev);
+  border: 1px solid var(--border); display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ab-score.win { border-color: var(--green); color: var(--green); }
+
 /* ── Login / access token ───────────────────────────────────────────────── */
 .modal.login { max-width: 420px; text-align: center; }
 .modal.login h2 { margin: 8px 0 4px; }

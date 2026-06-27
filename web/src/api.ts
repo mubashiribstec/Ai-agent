@@ -279,6 +279,14 @@ export async function runEval(id: number): Promise<any> {
 export async function deleteEval(id: number) {
   await fetch(`/evals/${id}`, { method: "DELETE" });
 }
+export interface AbVariant { name: string; system_prompt?: string; model?: string; }
+export interface AbResult { name: string; system_prompt: string; model: string; passed: number; total: number; score: number; }
+export async function runEvalAB(id: number, variants: AbVariant[]): Promise<{ ok: boolean; error?: string; variants: AbResult[]; winner: string; winner_detail: AbResult }> {
+  return (await fetch(`/evals/${id}/ab`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ variants }) })).json();
+}
+export async function promoteEval(body: { system_prompt?: string; model?: string }): Promise<{ ok: boolean; promoted: string[] }> {
+  return (await fetch("/evals/promote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+}
 
 // ── Knowledge graph ───────────────────────────────────────────────────────────
 export interface GraphNode { name: string; type: string; mentions: number; }

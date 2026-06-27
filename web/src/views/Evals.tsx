@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, FlaskConical, Play, Plus, Trash2, XCircle } from "lucide-react";
-import { EvalCase, EvalRun, EvalSuite, deleteEval, getEvals, runEval, saveEval } from "../api";
+import { CheckCircle2, FlaskConical, GitCompare, Play, Plus, Trash2, Trophy, XCircle } from "lucide-react";
+import {
+  AbResult, AbVariant, EvalCase, EvalRun, EvalSuite,
+  deleteEval, getEvals, promoteEval, runEval, runEvalAB, saveEval,
+} from "../api";
 import { useToast } from "../components/Toast";
 
 const pct = (r: EvalRun) => (r.total ? Math.round((r.passed / r.total) * 100) : 0);
@@ -25,6 +28,7 @@ export function Evals() {
   const [evals, setEvals] = useState<EvalSuite[]>([]);
   const [busy, setBusy] = useState<number | null>(null);
   const [editing, setEditing] = useState<{ id?: number; name: string; cases: EvalCase[] } | null>(null);
+  const [ab, setAb] = useState<EvalSuite | null>(null);
 
   const reload = () => getEvals().then((r) => setEvals(r.evals)).catch(() => {});
   useEffect(() => { reload(); }, []);
@@ -46,6 +50,8 @@ export function Evals() {
     if (res.ok) { toast("suite saved", "success"); setEditing(null); reload(); }
     else toast("save failed", "error");
   };
+
+  if (ab) return <AbPanel suite={ab} onClose={() => { setAb(null); reload(); }} />;
 
   if (editing) {
     return (
@@ -102,6 +108,7 @@ export function Evals() {
                 {last && <span className={`badge ${last.passed === last.total ? "ok" : "warn"}`}>{pct(last)}%</span>}
                 <button className="btn primary" disabled={busy === s.id} onClick={() => run(s.id)}>
                   <Play size={14} /> {busy === s.id ? "Running…" : "Run"}</button>
+                <button className="btn" title="A/B test prompts/models" onClick={() => setAb(s)}><GitCompare size={14} /> A/B</button>
                 <button className="btn" onClick={() => setEditing({ id: s.id, name: s.name, cases: s.cases.map((c) => ({ ...c })) })}>Edit</button>
                 <button className="x" onClick={() => deleteEval(s.id).then(reload)}><Trash2 size={14} /></button>
               </div>
@@ -121,6 +128,69 @@ export function Evals() {
           </div>
         );
       })}
+    </div></div>
+  );
+}
+
+// A/B-test a suite across prompt/model variants, then promote the winner.
+function AbPanel({ suite, onClose }: { suite: EvalSuite; onClose: () => void }) {
+  const toast = useToast();
+  const [variants, setVariants] = useState<AbVariant[]>([
+    { name: "A", system_prompt: "", model: "" },
+    { name: "B", system_prompt: "", model: "" },
+  ]);
+  const [running, setRunning] = useState(false);
+  const [results, setResults] = useState<AbResult[]>([]);
+  const [winner, setWinner] = useState("");
+
+  const patch = (i: number, p: Partial<AbVariant>) =>
+    setVariants(variants.map((v, j) => (j === i ? { ...v, ...p } : v)));
+
+  const run = async () => {
+    setRunning(true); setResults([]);
+    const res = await runEvalAB(suite.id, variants.filter((v) => v.name.trim()));
+    setRunning(false);
+    if (!res.ok) { toast(res.error || "A/B run failed", "error"); return; }
+    setResults(res.variants); setWinner(res.winner);
+    toast(`winner: ${res.winner}`, "success");
+  };
+  const promote = async () => {
+    const w = results.find((r) => r.name === winner);
+    if (!w) return;
+    await promoteEval({ system_prompt: w.system_prompt, model: w.model });
+    toast(`promoted variant ${winner} to live config`, "success");
+  };
+
+  return (
+    <div className="pane"><div className="pane-wide">
+      <div className="page-head"><h1><GitCompare size={22} /> A/B · {suite.name}</h1>
+        <button className="btn" onClick={onClose}>Back</button></div>
+      <p className="dim">Run the suite's {suite.cases.length} case(s) under each variant and promote the winner.
+        Leave a field blank to use the current default.</p>
+
+      <div className="ab-grid">
+        {variants.map((v, i) => (
+          <div key={i} className="card">
+            <input className="ab-name" value={v.name} onChange={(e) => patch(i, { name: e.target.value })} />
+            <label className="lbl-sm" style={{ marginTop: 8 }}>System prompt</label>
+            <textarea className="md-edit" rows={5} placeholder="(default prompt)" value={v.system_prompt}
+              onChange={(e) => patch(i, { system_prompt: e.target.value })} />
+            <label className="lbl-sm" style={{ marginTop: 8 }}>Model</label>
+            <input placeholder="(default model)" value={v.model} onChange={(e) => patch(i, { model: e.target.value })} />
+            {results.find((r) => r.name === v.name) && (() => {
+              const r = results.find((x) => x.name === v.name)!;
+              return <div className={`ab-score ${winner === v.name ? "win" : ""}`}>
+                {winner === v.name && <Trophy size={14} />} {r.passed}/{r.total} · score {r.score}</div>;
+            })()}
+          </div>
+        ))}
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 12 }}>
+        <button className="btn" onClick={() => setVariants([...variants, { name: String.fromCharCode(65 + variants.length), system_prompt: "", model: "" }])}>
+          <Plus size={14} /> Variant</button>
+        <button className="btn primary" disabled={running} onClick={run}><Play size={14} /> {running ? "Running…" : "Run A/B"}</button>
+        {winner && <button className="btn" onClick={promote}><Trophy size={14} /> Promote {winner}</button>}
+      </div>
     </div></div>
   );
 }

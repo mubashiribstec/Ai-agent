@@ -1059,6 +1059,27 @@ def create_app():
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)}
 
+    @app.post("/evals/{eval_id}/ab")
+    async def run_eval_ab(eval_id: int, body: dict) -> dict:
+        """A/B-test a suite across prompt/model variants and return a winner."""
+        from xplogent.core.evals import run_ab
+        variants = body.get("variants") or []
+        if len(variants) < 2:
+            return {"ok": False, "error": "provide at least two variants"}
+        try:
+            res = await run_ab(eval_id, variants)
+            return {"ok": True, **res}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+
+    @app.post("/evals/promote")
+    async def promote_eval(body: dict) -> dict:
+        """Promote a winning variant's prompt/model to the live config."""
+        from xplogent.core.evals import promote_variant
+        out = promote_variant(str(body.get("system_prompt", "")), str(body.get("model", "")))
+        _audit_event("eval_promote", target=",".join(out.get("promoted", [])), risk="medium")
+        return out
+
     # ── Persona (SOUL.md) + curated memory (MEMORY.md) ───────────────────────
     @app.get("/persona/soul")
     async def get_soul() -> dict:

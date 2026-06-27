@@ -513,6 +513,39 @@ def evals_run(eval_id: int) -> None:
         console.print(f"  {mark} {r['prompt'][:60]} [dim]— {r['reason']}[/]")
 
 
+@evals_app.command("gate")
+def evals_gate(
+    eval_id: int = typer.Option(None, "--suite", help="Gate one suite (default: all suites)."),
+    min_score: float = typer.Option(0.8, "--min-score", help="Fail below this average score."),
+) -> None:
+    """CI gate: run suite(s) and exit non-zero if any scores below the threshold.
+
+    Use in CI to block regressions, e.g. `xplogent evals gate --min-score 0.9`.
+    """
+    from xplogent.core.evals import run_suite
+
+    store = Store(load_config().db_path)
+    ids = [eval_id] if eval_id is not None else [s["id"] for s in store.list_evals()]
+    names = {s["id"]: s["name"] for s in store.list_evals()}
+    store.close()
+    if not ids:
+        console.print("[yellow]no eval suites to gate[/]")
+        raise typer.Exit(0)
+
+    failed = False
+    for sid in ids:
+        res = asyncio.run(run_suite(sid))
+        ok = res["score"] >= min_score
+        failed = failed or not ok
+        tag = "[green]PASS[/]" if ok else "[red]FAIL[/]"
+        console.print(f"{tag} suite '{names.get(sid, sid)}' — score {res['score']} "
+                      f"({res['passed']}/{res['total']}) vs min {min_score}")
+    if failed:
+        console.print("[red]eval gate failed[/]")
+        raise typer.Exit(1)
+    console.print("[green]eval gate passed[/]")
+
+
 @docs_app.command("ingest")
 def docs_ingest(path: str) -> None:
     """Ingest a file or folder into the document store."""

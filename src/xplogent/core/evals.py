@@ -78,8 +78,13 @@ async def judge_answer(judge: Provider, prompt: str, criteria: str, answer: str)
 
 
 async def run_suite(eval_id: int, config: Config | None = None, *,
-                    judge_model: str | None = None) -> dict:
-    """Run every case in a suite, judge it, persist an ``eval_runs`` row."""
+                    judge_model: str | None = None, model: str | None = None,
+                    label: str = "") -> dict:
+    """Run every case in a suite, judge it, persist an ``eval_runs`` row.
+
+    ``model`` overrides the model used to run the cases (the judge is unchanged);
+    ``label`` tags the recorded run (used to name A/B variants in history).
+    """
     config = config or load_config()
     from xplogent.memory.store import Store
 
@@ -89,7 +94,7 @@ async def run_suite(eval_id: int, config: Config | None = None, *,
     results: list[CaseResult] = []
     try:
         for case in cases:
-            rt = build_runtime(config, with_memory=False)
+            rt = build_runtime(config, with_memory=False, model=model)
             try:
                 answer = await rt.agent.run(case["prompt"])
             except Exception as exc:  # noqa: BLE001 - a bad case shouldn't abort the suite
@@ -107,7 +112,47 @@ async def run_suite(eval_id: int, config: Config | None = None, *,
     passed = sum(1 for r in results if r.passed)
     avg = round(sum(r.score for r in results) / n, 3) if n else 0.0
     detail = json.dumps([r.as_dict() for r in results])
-    store.add_eval_run(eval_id, config.model, passed, n, avg, detail)
+    run_model = model or config.model
+    store.add_eval_run(eval_id, f"{label} · {run_model}" if label else run_model,
+                       passed, n, avg, detail)
     store.close()
     return {"eval_id": eval_id, "passed": passed, "total": n, "score": avg,
-            "model": config.model, "results": [r.as_dict() for r in results]}
+            "model": run_model, "results": [r.as_dict() for r in results]}
+
+
+async def run_ab(eval_id: int, variants: list[dict], config: Config | None = None, *,
+                 judge_model: str | None = None) -> dict:
+    """Run a suite under several prompt/model **variants** and pick a winner.
+
+    Each variant is ``{name, system_prompt?, model?}``. The variant with the
+    highest score (then most passes) wins; promote it with ``promote_variant``.
+    """
+    base = config or load_config()
+    out: list[dict] = []
+    for v in variants:
+        overrides: dict = {}
+        if v.get("system_prompt"):
+            overrides["agent"] = {"system_prompt": v["system_prompt"]}
+        vcfg = load_config(overrides=overrides) if overrides else base
+        res = await run_suite(eval_id, vcfg, judge_model=judge_model,
+                              model=v.get("model") or None, label=str(v.get("name", "")))
+        out.append({"name": v.get("name", ""), "system_prompt": v.get("system_prompt", ""),
+                    "model": res["model"], "passed": res["passed"],
+                    "total": res["total"], "score": res["score"]})
+    winner = max(out, key=lambda r: (r["score"], r["passed"]), default=None) if out else None
+    return {"variants": out, "winner": winner["name"] if winner else None,
+            "winner_detail": winner}
+
+
+def promote_variant(system_prompt: str = "", model: str = "") -> dict:
+    """Persist a winning variant's settings to user config (the live defaults)."""
+    from xplogent.core.config import save_user_config
+
+    updates: dict = {}
+    if system_prompt:
+        updates["agent"] = {"system_prompt": system_prompt}
+    if model:
+        updates["model"] = model
+    if updates:
+        save_user_config(updates)
+    return {"ok": True, "promoted": list(updates.keys())}
