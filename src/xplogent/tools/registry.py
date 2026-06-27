@@ -8,6 +8,7 @@ from xplogent.tools.browser import browser_tools
 from xplogent.tools.documents import documents_tools
 from xplogent.tools.filesystem import filesystem_tools
 from xplogent.tools.gui import gui_tools
+from xplogent.tools.memory import memory_tools
 from xplogent.tools.python_exec import PythonExecTool
 from xplogent.tools.shell import ShellTool
 from xplogent.tools.vision import vision_tools
@@ -23,6 +24,7 @@ _BUILTIN_GROUPS = {
     "browser": browser_tools,
     "vision": vision_tools,
     "documents": documents_tools,
+    "memory": memory_tools,
 }
 
 
