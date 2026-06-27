@@ -33,6 +33,8 @@ class EventType(StrEnum):
     SKILL = "skill"
     # token accounting / context window
     USAGE = "usage"
+    # cost guardrails
+    BUDGET = "budget"
     # agent-rendered visual workspace
     CANVAS = "canvas"
     # visual workflow execution

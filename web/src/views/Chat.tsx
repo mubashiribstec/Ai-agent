@@ -83,6 +83,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
         setLog((l) => [...l, { kind: "note", text: `learned ${ev.facts} fact(s)${ev.skill ? `, skill '${ev.skill}'` : ""}` }]);
         refreshSkills(); break;
       case "usage": setUsage(ev as unknown as Usage); break;
+      case "budget":
+        setLog((l) => [...l, { kind: "note", text: `💰 budget (${ev.scope}): ${ev.reason}${ev.action === "downgrade" ? ` → switched to ${ev.model}` : ev.action === "pause" ? " → run paused" : ""}` }]);
+        toast(String(ev.reason ?? "budget cap reached"), ev.action === "pause" ? "error" : "info");
+        break;
       case "session":
         sessionId.current = Number(ev.id); localStorage.setItem("xplogent_session", String(ev.id)); break;
       case "approval_required": {

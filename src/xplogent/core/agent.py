@@ -172,6 +172,9 @@ class Agent:
         try:
             for step in range(self._max_steps):
                 await self._checkpoint()
+                if await self._enforce_budget():
+                    final_answer = "(stopped: cost budget reached)"
+                    break
                 self.steps_taken = step + 1
                 await self._emit(EventType.STEP_START, step=step)
                 messages = await self._build_messages(task)
@@ -273,6 +276,44 @@ class Agent:
                 _log.warning("provider %s for agent %s; retry %d", kind, self.name, attempt)
                 await asyncio.sleep(policy.delay_for(attempt))
         return None
+
+    async def _enforce_budget(self) -> bool:
+        """Check spend against configured caps. Returns True if the run must stop."""
+        budget = self.config.budget
+        if not budget or not (budget.get("daily_usd") or budget.get("session_usd")):
+            return False
+        from xplogent.core.budget import check_budget
+
+        store = self.memory.store if self.memory else None
+        verdict = check_budget(budget, store, self.session_cost)
+        if not verdict.exceeded:
+            self._budget_warned = False
+            return False
+
+        if verdict.action == "downgrade" and budget.get("downgrade_model"):
+            target = str(budget["downgrade_model"])
+            current = f"{getattr(self.provider, 'name', '')}:{getattr(self.provider, 'model', '')}"
+            if target and target != current:
+                from xplogent.providers.registry import build_provider
+                old = self.provider
+                self.provider = build_provider(target)
+                await old.aclose()
+                await self._emit(EventType.BUDGET, action="downgrade", scope=verdict.scope,
+                                 reason=verdict.reason, model=target,
+                                 spent=verdict.spent, cap=verdict.cap)
+            return False
+
+        if verdict.action == "pause":
+            await self._emit(EventType.BUDGET, action="pause", scope=verdict.scope,
+                             reason=verdict.reason, spent=verdict.spent, cap=verdict.cap)
+            return True
+
+        # warn (default): notify once, keep going.
+        if not getattr(self, "_budget_warned", False):
+            self._budget_warned = True
+            await self._emit(EventType.BUDGET, action="warn", scope=verdict.scope,
+                             reason=verdict.reason, spent=verdict.spent, cap=verdict.cap)
+        return False
 
     async def _emit_usage(self, assistant: Message) -> None:
         """Emit real token usage + context-window fill for this turn."""

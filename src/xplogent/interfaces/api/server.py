@@ -946,6 +946,23 @@ def create_app():
         _audit_event("workflow_run", target=wf.get("name", str(workflow_id)))
         return await run_workflow(wf["graph"])
 
+    # ── Budget / cost guardrails ─────────────────────────────────────────────
+    @app.get("/budget")
+    async def get_budget() -> dict:
+        from xplogent.core.budget import today_spend
+
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        spent = today_spend(store)
+        store.close()
+        return {"budget": cfg.budget, "today_spend": spent}
+
+    @app.post("/budget")
+    async def set_budget(body: dict) -> dict:
+        merged = save_user_config({"budget": body})
+        _audit_event("budget_change", target=",".join(str(k) for k in body.keys()))
+        return {"ok": True, "budget": merged.get("budget", {})}
+
     # ── Evals ────────────────────────────────────────────────────────────────
     @app.get("/evals")
     async def list_evals() -> dict:

@@ -527,6 +527,10 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .wf-result { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r2);
   padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 200px; overflow: auto; }
 
+/* ── Budget guardrails ──────────────────────────────────────────────────── */
+.bud { display: flex; flex-direction: column; gap: 3px; }
+.bud input, .bud select { width: 150px; }
+
 /* ── Voice ──────────────────────────────────────────────────────────────── */
 .icon-btn.rec { color: var(--red); animation: rec-pulse 1.1s ease-in-out infinite; }
 @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }

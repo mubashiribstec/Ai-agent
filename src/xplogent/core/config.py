@@ -102,6 +102,7 @@ class Config:
     skills: dict[str, Any] = field(default_factory=dict)
     orchestrator: dict[str, Any] = field(default_factory=dict)
     scheduler: dict[str, Any] = field(default_factory=dict)
+    budget: dict[str, Any] = field(default_factory=dict)
     roles: dict[str, Any] = field(default_factory=dict)
     mcp: dict[str, Any] = field(default_factory=dict)
     models: list[dict[str, Any]] = field(default_factory=list)
@@ -288,6 +289,7 @@ def load_config(overrides: dict[str, Any] | None = None) -> Config:
         skills=data.get("skills", {}),
         orchestrator=data.get("orchestrator", {}),
         scheduler=data.get("scheduler", {}),
+        budget=data.get("budget", {}),
         roles=data.get("roles", {}),
         mcp=data.get("mcp", {}),
         models=data.get("models", []),

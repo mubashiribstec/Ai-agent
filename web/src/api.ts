@@ -251,6 +251,15 @@ export async function getAnalytics(days = 30): Promise<Analytics> {
   return (await fetch(`/analytics?days=${days}`)).json();
 }
 
+// ── Budget / cost guardrails ──────────────────────────────────────────────────
+export interface Budget { daily_usd?: number; session_usd?: number; on_exceed?: string; downgrade_model?: string; }
+export async function getBudget(): Promise<{ budget: Budget; today_spend: number }> {
+  return (await fetch("/budget")).json();
+}
+export async function setBudget(b: Budget): Promise<{ ok: boolean; budget: Budget }> {
+  return (await fetch("/budget", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) })).json();
+}
+
 // ── Evals ─────────────────────────────────────────────────────────────────────
 export interface EvalCase { id?: number; prompt: string; criteria: string; }
 export interface EvalRun { passed: number; total: number; score: number; model: string; created_at: number; }

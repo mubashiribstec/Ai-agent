@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { BarChart3, Coins, Cpu, RefreshCw, Zap } from "lucide-react";
-import { Analytics as AnalyticsData, UsageBucket, getAnalytics } from "../api";
+import { BarChart3, Coins, Cpu, RefreshCw, ShieldCheck, Zap } from "lucide-react";
+import { Analytics as AnalyticsData, Budget, UsageBucket, getAnalytics, getBudget, setBudget } from "../api";
+import { useToast } from "../components/Toast";
 
 const fmt = (n: number) => n.toLocaleString();
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`;
@@ -45,6 +46,46 @@ function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; va
   );
 }
 
+function BudgetCard() {
+  const toast = useToast();
+  const [b, setB] = useState<Budget>({});
+  const [spend, setSpend] = useState(0);
+  const load = () => getBudget().then((r) => { setB(r.budget || {}); setSpend(r.today_spend); }).catch(() => {});
+  useEffect(() => { load(); }, []);
+
+  const cap = Number(b.daily_usd || 0);
+  const pct = cap > 0 ? Math.min(100, Math.round((spend / cap) * 100)) : 0;
+  const save = async () => { await setBudget(b); toast("budget saved", "success"); load(); };
+
+  return (
+    <div className="card">
+      <h3><ShieldCheck size={16} /> Cost guardrails</h3>
+      {cap > 0 && (
+        <div style={{ margin: "4px 0 12px" }}>
+          <div className="dim" style={{ fontSize: 12, marginBottom: 4 }}>today: ${spend.toFixed(4)} / ${cap.toFixed(2)} ({pct}%)</div>
+          <div className="meter"><span className="fill" style={{ width: `${pct}%`, background: pct >= 100 ? "var(--red)" : pct >= 80 ? "var(--amber)" : "var(--accent)" }} /></div>
+        </div>
+      )}
+      <div className="row wrap" style={{ gap: 10 }}>
+        <label className="bud"><span className="lbl-sm">Daily cap (USD)</span>
+          <input type="number" min={0} step={0.5} value={b.daily_usd ?? 0} onChange={(e) => setB({ ...b, daily_usd: Number(e.target.value) })} /></label>
+        <label className="bud"><span className="lbl-sm">Session cap (USD)</span>
+          <input type="number" min={0} step={0.5} value={b.session_usd ?? 0} onChange={(e) => setB({ ...b, session_usd: Number(e.target.value) })} /></label>
+        <label className="bud"><span className="lbl-sm">When exceeded</span>
+          <select value={b.on_exceed ?? "warn"} onChange={(e) => setB({ ...b, on_exceed: e.target.value })}>
+            <option value="warn">warn</option><option value="downgrade">downgrade</option><option value="pause">pause</option>
+          </select></label>
+        {b.on_exceed === "downgrade" && (
+          <label className="bud"><span className="lbl-sm">Downgrade to</span>
+            <input placeholder="provider:model" value={b.downgrade_model ?? ""} onChange={(e) => setB({ ...b, downgrade_model: e.target.value })} /></label>
+        )}
+      </div>
+      <button className="btn" style={{ marginTop: 10 }} onClick={save}>Save guardrails</button>
+      <p className="dim" style={{ fontSize: 12, marginTop: 6 }}>0 disables a cap. Local models cost $0 and never trip a cap.</p>
+    </div>
+  );
+}
+
 export function Analytics() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [days, setDays] = useState(30);
@@ -74,6 +115,8 @@ export function Analytics() {
           <Stat icon={<Cpu size={16} />} label="output tokens" value={fmt(t?.output_tokens ?? 0)} />
           <Stat icon={<Coins size={16} />} label="est. cost" value={usd(t?.cost ?? 0)} />
         </div>
+
+        <BudgetCard />
 
         <div className="card">
           <h3>Tokens per day <span className="dim" style={{ fontWeight: 400 }}>· <span className="swatch in" /> input <span className="swatch out" /> output</span></h3>
