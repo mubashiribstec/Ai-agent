@@ -178,7 +178,11 @@ class Agent:
                 self.steps_taken = step + 1
                 await self._emit(EventType.STEP_START, step=step)
                 messages = await self._build_messages(task)
-                tool_specs = self.tools.specs()
+                # Local vision models (e.g. llava) reject tool specs; an image turn is
+                # a pure perception turn unless the user opts into vision+tools.
+                has_images = any(getattr(m, "images", None) for m in messages)
+                tool_specs = ([] if (has_images and not self.config.agent.get("vision_tools", False))
+                              else self.tools.specs())
 
                 assistant = await self._stream_assistant(messages, tool_specs)
                 if assistant is None:  # provider failed; error already emitted

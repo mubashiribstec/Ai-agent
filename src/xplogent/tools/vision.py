@@ -50,7 +50,9 @@ class AnalyzeImageTool(Tool):
             reply = await provider.complete([msg])
         except Exception as exc:  # noqa: BLE001
             return ToolResult.failure(
-                f"Vision request failed (is '{model}' vision-capable?): {exc}"
+                f"Vision request failed with '{model}': {exc}. Set a vision-capable "
+                "model in Settings → Vision model (or click 'Enable local vision' to "
+                "use llava offline)."
             )
         finally:
             await provider.aclose()

@@ -404,6 +404,16 @@ export async function ollamaPull(model: string): Promise<{ ok: boolean; output?:
   })).json();
 }
 
+// ── Vision ────────────────────────────────────────────────────────────────────
+export async function enableLocalVision(model = "llava"): Promise<{ ok: boolean; vision_model?: string; error?: string }> {
+  return (await fetch("/vision/enable-local", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
+  })).json();
+}
+export async function testVision(): Promise<{ ok: boolean; model: string; reply: string }> {
+  return (await fetch("/vision/test", { method: "POST" })).json();
+}
+
 // ── Runs & observability ──────────────────────────────────────────────────────
 export interface RunInfo {
   id: string; goal: string; mode: string; status: string;

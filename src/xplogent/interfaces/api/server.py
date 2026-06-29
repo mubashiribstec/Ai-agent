@@ -216,6 +216,48 @@ def create_app():
         rc, out = await asyncio.to_thread(_pull)
         return {"ok": rc == 0, "output": out}
 
+    # ── Vision: one-click local model + self-test ────────────────────────────
+    @app.post("/vision/enable-local")
+    async def vision_enable_local(body: dict | None = None) -> dict:
+        """Pull a local vision model (default llava) and set it as the vision model."""
+        import shutil
+        import subprocess
+
+        model = str((body or {}).get("model", "") or "llava").strip()
+        if shutil.which("ollama") is None:
+            return {"ok": False, "error": "the 'ollama' CLI isn't installed"}
+
+        def _pull() -> tuple[int, str]:
+            proc = subprocess.run(["ollama", "pull", model],
+                                  capture_output=True, text=True, timeout=1800)
+            return proc.returncode, (proc.stdout + proc.stderr)[-2000:]
+
+        rc, out = await asyncio.to_thread(_pull)
+        if rc != 0:
+            return {"ok": False, "error": f"ollama pull failed: {out[-400:]}"}
+        save_user_config({"vision_model": f"ollama:{model}"})
+        return {"ok": True, "vision_model": f"ollama:{model}", "output": out}
+
+    @app.post("/vision/test")
+    async def vision_test() -> dict:
+        """Run analyze_image on a tiny generated image to verify the vision model."""
+        import base64
+        import tempfile
+
+        from xplogent.tools.vision import AnalyzeImageTool
+
+        cfg = load_config()
+        model = (cfg.vision_model or "").strip() or cfg.model
+        # A minimal 1x1 red PNG — enough to confirm the vision pipeline responds.
+        png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as fh:
+            fh.write(png)
+            path = fh.name
+        res = await AnalyzeImageTool().run(path=path, question="What color is this image?")
+        return {"ok": res.ok, "model": model,
+                "reply": res.output if res.ok else res.error}
+
     @app.get("/config")
     async def config() -> dict:
         cfg = load_config()
@@ -376,8 +418,15 @@ def create_app():
         async def handle_task(msg: dict) -> None:
             gen_params = {k: msg[k] for k in ("effort", "thinking", "max_tokens", "temperature")
                           if msg.get(k) is not None}
-            runtime = await get_runtime(msg.get("model"), gen_params)
             images = msg.get("images") or None
+            model = msg.get("model")
+            # Images need a model that can see: route image turns to the configured
+            # vision model unless the user explicitly picked one.
+            if images and not model:
+                vm = (load_config().vision_model or "").strip()
+                if vm:
+                    model = vm
+            runtime = await get_runtime(model, gen_params)
             await runtime.agent.run(msg.get("task", ""), images=images)
             await websocket.send_json({"type": "done"})
 
