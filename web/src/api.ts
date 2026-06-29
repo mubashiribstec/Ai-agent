@@ -297,6 +297,14 @@ export async function promoteEval(body: { system_prompt?: string; model?: string
   return (await fetch("/evals/promote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
 }
 
+// ── Chrome extension (real-browser control) ───────────────────────────────────
+export interface BrowserTab { id: number; title: string; url: string; active: boolean; }
+export interface InputActivity { field: string; type: string; page: string; url: string; redacted?: boolean; ts?: number; }
+export interface ExtensionStatus { connected: boolean; tabs: BrowserTab[]; inputs: InputActivity[]; last_seen: number; }
+export async function getExtensionStatus(): Promise<ExtensionStatus> {
+  return (await fetch("/extension/status")).json();
+}
+
 // ── Knowledge graph ───────────────────────────────────────────────────────────
 export interface GraphNode { name: string; type: string; mentions: number; }
 export interface GraphEdge { subject: string; relation: string; object: string; }

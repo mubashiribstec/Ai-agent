@@ -88,6 +88,7 @@ tools:
     - web
     - gui
     - browser
+    - browser_extension
     - vision
     - documents
     - memory

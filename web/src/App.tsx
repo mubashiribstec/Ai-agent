@@ -16,6 +16,7 @@ import { Audit } from "./views/Audit";
 import { Graph } from "./views/Graph";
 import { Workflows } from "./views/Workflows";
 import { Operator } from "./views/Operator";
+import { Browser } from "./views/Browser";
 import { Triggers } from "./views/Triggers";
 import { Council } from "./Council";
 import { MissionControl } from "./MissionControl";
@@ -102,6 +103,7 @@ export function App() {
         {tab === "council" && <Council />}
         {tab === "mission" && <MissionControl />}
         {tab === "operator" && <Operator />}
+        {tab === "browser" && <Browser />}
         {tab === "runs" && <Runs />}
         {tab === "knowledge" && <Knowledge />}
         {tab === "graph" && <Graph />}

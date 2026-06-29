@@ -547,6 +547,35 @@ def create_app():
         return FileResponse(str(shots[0]), media_type="image/png",
                             headers={"Cache-Control": "no-store"})
 
+    # ── Chrome extension bridge (real-browser control + monitoring) ──────────
+    @app.websocket("/ws/extension")
+    async def ws_extension(websocket: WebSocket) -> None:
+        if not _ws_authorized(websocket):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        from xplogent.core.extension import get_bridge
+
+        bridge = get_bridge()
+        bridge.attach(websocket)
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                kind = msg.get("type")
+                if kind == "snapshot":
+                    bridge.update_snapshot(msg.get("tabs"), msg.get("inputs"))
+                elif kind == "result":
+                    bridge.resolve(str(msg.get("id", "")), bool(msg.get("ok")), msg.get("data"))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            bridge.detach(websocket)
+
+    @app.get("/extension/status")
+    async def extension_status() -> dict:
+        from xplogent.core.extension import get_bridge
+        return get_bridge().status()
+
     # ── Multi-agent orchestration + deep monitoring ──────────────────────────
     @app.post("/orchestrate")
     async def orchestrate(req: OrchestrateRequest) -> dict:
