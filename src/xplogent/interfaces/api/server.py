@@ -775,6 +775,8 @@ def create_app():
                 res = await install_pack(str(body["src"]), mem)
             else:
                 res = {"ok": False, "error": "provide 'src' (path/url/pack) or 'skill_md'"}
+            for nm in (res.get("installed") or []) if isinstance(res, dict) else []:
+                store.add_skill_event(str(nm), "installed", "novice", 1, "installed from hub")
         except Exception as exc:  # noqa: BLE001
             res = {"ok": False, "error": str(exc)}
         finally:
@@ -1123,6 +1125,34 @@ def create_app():
             await provider.aclose()
             store.close()
         return {"ok": True, "content": content}
+
+    @app.get("/skills/history")
+    async def skills_history(limit: int = 50) -> dict:
+        store = Store(load_config().db_path)
+        out = store.skill_events(limit=limit)
+        store.close()
+        return {"events": out}
+
+    @app.post("/memory/consolidate")
+    async def memory_consolidate() -> dict:
+        """End-of-conversation save: flush every skill to the skills folder and
+        distill MEMORY.md. Reused by the GUI when a chat ends."""
+        from xplogent.core.persona import compact_memory
+        from xplogent.skills.manager import SkillManager
+
+        cfg = load_config()
+        store = Store(cfg.db_path)
+        embed_provider = build_provider(cfg.embedding_model)
+        provider = build_provider(cfg.reflection_model)
+        try:
+            sm = SkillManager(MemoryManager(store, Embedder(embed_provider)), cfg.skills_dir)
+            exported = await asyncio.to_thread(sm.export_all)
+            content = await compact_memory(store, provider)
+        finally:
+            await embed_provider.aclose()
+            await provider.aclose()
+            store.close()
+        return {"ok": True, "skills_saved": exported, "memory": content}
 
     # ── Backup / restore + knowledge export/import ───────────────────────────
     @app.get("/backup")

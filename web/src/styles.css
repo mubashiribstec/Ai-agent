@@ -527,6 +527,12 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .wf-result { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--r2);
   padding: 8px; font-size: 12px; white-space: pre-wrap; max-height: 200px; overflow: auto; }
 
+/* ── Skill improvement bar ──────────────────────────────────────────────── */
+.skill-bar { height: 5px; border-radius: var(--r-full); background: var(--panel-2);
+  overflow: hidden; margin: 5px 0 3px; max-width: 320px; }
+.skill-bar-fill { display: block; height: 100%; border-radius: var(--r-full);
+  background: linear-gradient(90deg, var(--accent), var(--magenta)); transition: width .4s ease; }
+
 /* ── Budget guardrails ──────────────────────────────────────────────────── */
 .bud { display: flex; flex-direction: column; gap: 3px; }
 .bud input, .bud select { width: 150px; }

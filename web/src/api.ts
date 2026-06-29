@@ -221,6 +221,15 @@ export async function putMemoryMd(content: string) {
 export async function compactMemory(): Promise<{ ok: boolean; content?: string }> {
   return (await fetch("/memory/compact", { method: "POST" })).json();
 }
+export async function consolidateMemory(): Promise<{ ok: boolean; skills_saved: number; memory: string }> {
+  return (await fetch("/memory/consolidate", { method: "POST" })).json();
+}
+
+// ── Skill activity history ────────────────────────────────────────────────────
+export interface SkillEvent { name: string; action: string; level: string; stars: number; detail: string; created_at: number; }
+export async function getSkillHistory(limit = 50): Promise<{ events: SkillEvent[] }> {
+  return (await fetch(`/skills/history?limit=${limit}`)).json();
+}
 
 // ── Documents / RAG ───────────────────────────────────────────────────────────
 export interface DocInfo { id: number; source: string; title: string; chunks: number; created_at: number; }

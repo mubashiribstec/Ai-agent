@@ -167,6 +167,15 @@ CREATE TABLE IF NOT EXISTS workflows (
     created_at REAL,
     updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS skill_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
+    action TEXT,
+    level TEXT,
+    stars INTEGER,
+    detail TEXT,
+    created_at REAL
+);
 CREATE TABLE IF NOT EXISTS triggers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
@@ -466,6 +475,21 @@ class Store:
 
     def delete_skill(self, name: str) -> None:
         self._write("DELETE FROM skills WHERE name=?", (name,))
+
+    def skill_exists(self, name: str) -> bool:
+        return bool(self._query("SELECT 1 FROM skills WHERE name=?", (name,)))
+
+    # -- skill activity history ------------------------------------------------
+    def add_skill_event(self, name: str, action: str, level: str = "",
+                        stars: int = 0, detail: str = "") -> None:
+        self._write(
+            "INSERT INTO skill_events (name, action, level, stars, detail, created_at) "
+            "VALUES (?,?,?,?,?,?)", (name, action, level, stars, detail, time.time()))
+
+    def skill_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        return [dict(r) for r in self._query(
+            "SELECT name, action, level, stars, detail, created_at FROM skill_events "
+            "ORDER BY id DESC LIMIT ?", (limit,))]
 
     # -- runs / events / agent messages (monitoring) ---------------------------
     def create_run(self, run_id: str, goal: str, mode: str) -> None:

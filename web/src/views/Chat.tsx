@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import {
   ApprovalRequest, ConnStatus, XplogentEvent, XplogentSocket,
-  deleteSession, getSessionMessages, getSessions, getSkills, newSession,
+  consolidateMemory, deleteSession, getSessionMessages, getSessions, getSkills, newSession,
   renameSession, searchMemory, undoTurns,
 } from "../api";
 import { LayoutDashboard } from "lucide-react";
@@ -81,6 +81,10 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
         setLog((l) => [...l, { kind: "note", text: `recalled ${ev.facts} facts, ${ev.skills} skills` }]); break;
       case "skill":
         setLog((l) => [...l, { kind: "note", text: `learned ${ev.facts} fact(s)${ev.skill ? `, skill '${ev.skill}'` : ""}` }]);
+        if (ev.skill) {
+          const stars = "★".repeat(Number(ev.skill_stars) || 1);
+          toast(`Skill ${ev.skill_action === "updated" ? "improved" : "learned"}: ${ev.skill} ${stars}`, "success");
+        }
         refreshSkills(); break;
       case "usage": setUsage(ev as unknown as Usage); break;
       case "budget":
@@ -141,7 +145,11 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   }, []);
   useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [log]);
 
-  const newChat = async () => { const { id } = await newSession(); loadSession(id); refreshSessions(); };
+  const newChat = async () => {
+    // End-of-conversation save: flush skills to the folder + distill MEMORY.md.
+    if (log.length > 0) consolidateMemory().catch(() => {});
+    const { id } = await newSession(); loadSession(id); refreshSessions();
+  };
   const removeSession = async (id: number) => {
     await deleteSession(id);
     if (id === activeId) { localStorage.removeItem("xplogent_session"); loadSession(null); }

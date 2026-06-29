@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { BrainCircuit, Download, Package, Sparkles, Trash2, Wand2 } from "lucide-react";
+import { BrainCircuit, Download, History, Package, Sparkles, Trash2, Wand2 } from "lucide-react";
 import {
-  SkillPack, compactMemory, deleteSkill, getMemoryMd, getSkillLibrary, getSkills,
-  getSoul, installSkill, putMemoryMd, putSoul,
+  SkillEvent, SkillPack, compactMemory, deleteSkill, getMemoryMd, getSkillHistory,
+  getSkillLibrary, getSkills, getSoul, installSkill, putMemoryMd, putSoul,
 } from "../api";
+import { skillProgress } from "../lib/skills";
 import { useToast } from "../components/Toast";
+
+const fmtTime = (t: number) => new Date(t * 1000).toLocaleString();
 
 export function Persona() {
   const toast = useToast();
@@ -12,11 +15,15 @@ export function Persona() {
   const [memory, setMemory] = useState("");
   const [library, setLibrary] = useState<SkillPack[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
+  const [history, setHistory] = useState<SkillEvent[]>([]);
   const [skillMd, setSkillMd] = useState("");
   const [src, setSrc] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const reloadSkills = () => getSkills().then((s) => setSkills(s.skills)).catch(() => {});
+  const reloadSkills = () => {
+    getSkills().then((s) => setSkills(s.skills)).catch(() => {});
+    getSkillHistory().then((r) => setHistory(r.events)).catch(() => {});
+  };
   useEffect(() => {
     getSoul().then((r) => setSoul(r.content)).catch(() => {});
     getMemoryMd().then((r) => setMemory(r.content)).catch(() => {});
@@ -94,17 +101,43 @@ export function Persona() {
         <div className="card">
           <h3>Your skills ({skills.length})</h3>
           <ul className="list">
-            {skills.map((s) => (
-              <li key={s.name}>
+            {skills.map((s) => {
+              const prog = skillProgress(s);
+              return (
+                <li key={s.name}>
+                  <span style={{ flex: 1 }}>
+                    <b>{s.name}</b> <span className="stars" style={{ color: "var(--amber)" }}>{"★".repeat(s.stars ?? 1)}{"☆".repeat(3 - (s.stars ?? 1))}</span>{" "}
+                    <span className="badge">{s.level || "novice"}</span> <span className="badge">{s.source || "learned"}</span><br />
+                    <span className="dim" style={{ fontSize: 12 }}>{s.trigger || s.description}</span>
+                    <div className="skill-bar" title={`${s.uses ?? 0} uses · ${prog.pct}% to ${prog.next}`}>
+                      <span className="skill-bar-fill" style={{ width: `${prog.pct}%` }} />
+                    </div>
+                    <span className="faint" style={{ fontSize: 11 }}>
+                      {s.uses ?? 0} uses · {s.successes ?? 0}✓/{s.failures ?? 0}✗ · {prog.next === "max" ? "maxed" : `${prog.pct}% → ${prog.next}`}</span>
+                  </span>
+                  <button className="x" onClick={() => deleteSkill(s.name).then(reloadSkills)}><Trash2 size={14} /></button>
+                </li>
+              );
+            })}
+            {skills.length === 0 && <p className="dim">none yet — install a pack above or let the agent learn.</p>}
+          </ul>
+        </div>
+
+        <div className="card">
+          <h3><History size={16} /> Skill activity</h3>
+          <p className="dim">When the agent learns, improves, or you install a skill.</p>
+          <ul className="list">
+            {history.map((e, i) => (
+              <li key={i}>
                 <span style={{ flex: 1 }}>
-                  <b>{s.name}</b> <span className="stars" style={{ color: "var(--amber)" }}>{"★".repeat(s.stars ?? 1)}</span>{" "}
-                  <span className="badge">{s.source || "learned"}</span><br />
-                  <span className="dim" style={{ fontSize: 12 }}>{s.trigger || s.description}</span>
+                  <span className={`badge ${e.action === "learned" ? "ok" : e.action === "updated" ? "warn" : ""}`}>{e.action}</span>{" "}
+                  <b>{e.name}</b> <span className="stars" style={{ color: "var(--amber)" }}>{"★".repeat(e.stars || 1)}</span><br />
+                  <span className="dim" style={{ fontSize: 12 }}>{e.detail}</span>
                 </span>
-                <button className="x" onClick={() => deleteSkill(s.name).then(reloadSkills)}><Trash2 size={14} /></button>
+                <span className="faint" style={{ fontSize: 11, whiteSpace: "nowrap" }}>{fmtTime(e.created_at)}</span>
               </li>
             ))}
-            {skills.length === 0 && <p className="dim">none yet — install a pack above or let the agent learn.</p>}
+            {history.length === 0 && <p className="dim">no skill activity yet</p>}
           </ul>
         </div>
       </div>
