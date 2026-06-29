@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   addFact, deleteFact, deleteSkill, enableLocalVision, exportKnowledge, getFacts, getFullConfig,
-  getRoles, getSkills, getStatus, getTools, importKnowledge, patchConfig, putRole,
+  getProviderModels, getRoles, getSkills, getStatus, getTools, importKnowledge, patchConfig, putRole,
   putSecrets, restoreBackup, StatusInfo, testVision,
 } from "./api";
 import { UpdatePanel } from "./UpdatePanel";
@@ -69,6 +69,9 @@ export function Settings() {
       <BackupCard flash={flash} reload={reload} />
       <ExecutionBackend execution={cfg.execution ?? {}} onSave={save} />
 
+      <ModelBrowser providers={cfg.providers ?? []} models={cfg.models ?? []}
+        onAddPresets={async (m) => { await save({ models: m }); reload(); }}
+        onSave={save} flash={flash} />
       <ModelsManager models={cfg.models ?? []} onSave={async (m) => { await save({ models: m }); reload(); }} />
 
       <div className="card">
@@ -366,6 +369,62 @@ function VisionControls({ reload, flash }: { reload: () => void; flash: (m: stri
         <button onClick={test} disabled={!!busy}>{busy === "test" ? "Testing…" : "Test vision"}</button>
       </div>
       {result && <p className="dim" style={{ fontSize: 12, marginTop: 6, whiteSpace: "pre-wrap" }}>{result}</p>}
+    </div>
+  );
+}
+
+function ModelBrowser({ providers, models, onAddPresets, onSave, flash }: {
+  providers: string[]; models: any[];
+  onAddPresets: (m: any[]) => void; onSave: (u: Record<string, any>) => void; flash: (m: string) => void;
+}) {
+  const [provider, setProvider] = useState(providers[0] || "openrouter");
+  const [list, setList] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchModels = async () => {
+    setBusy(true); setError(""); setList([]);
+    const res = await getProviderModels(provider);
+    setBusy(false);
+    setList(res.models || []);
+    if (res.error) setError(res.error);
+  };
+
+  const spec = (id: string) => `${provider}:${id}`;
+  const addPreset = (id: string) => {
+    if (models.some((m) => m.model === spec(id))) { flash("already a preset"); return; }
+    onAddPresets([...models, { label: id, model: spec(id), temperature: 0.7, effort: "off", thinking: false }]);
+  };
+
+  const shown = filter ? list.filter((m) => m.toLowerCase().includes(filter.toLowerCase())) : list;
+
+  return (
+    <div className="card">
+      <h3>Browse provider models</h3>
+      <p className="dim">Fetch a provider's live catalog and add models without typing ids by hand.</p>
+      <div className="row wrap" style={{ gap: 8 }}>
+        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+          {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <button onClick={fetchModels} disabled={busy}>{busy ? "Fetching…" : "Fetch models"}</button>
+        {list.length > 0 && <input placeholder={`filter ${list.length} models…`} value={filter}
+          onChange={(e) => setFilter(e.target.value)} style={{ flex: 1, minWidth: 160 }} />}
+      </div>
+      {error && <p className="err" style={{ fontSize: 12, marginTop: 6 }}>{error}</p>}
+      {list.length > 0 && (
+        <ul className="list model-browser" style={{ maxHeight: 320, overflowY: "auto", marginTop: 8 }}>
+          {shown.slice(0, 300).map((id) => (
+            <li key={id}>
+              <span className="mono" style={{ flex: 1, fontSize: 12 }}>{id}</span>
+              <button onClick={() => addPreset(id)}>Add preset</button>
+              <button onClick={() => { onSave({ model: spec(id) }); flash(`active → ${id}`); }}>Use as active</button>
+              <button onClick={() => { onSave({ vision_model: spec(id) }); flash(`vision → ${id}`); }}>Vision</button>
+            </li>
+          ))}
+          {shown.length === 0 && <p className="dim">no matches for "{filter}"</p>}
+        </ul>
+      )}
     </div>
   );
 }

@@ -178,5 +178,10 @@ class AnthropicProvider(Provider):
                         usage=usage if usage["input_tokens"] or usage["output_tokens"] else None)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
+    async def list_models(self) -> list[str]:
+        resp = await self._client.get("/models")
+        resp.raise_for_status()
+        return [str(d["id"]) for d in resp.json().get("data", []) if d.get("id")]
+
     async def aclose(self) -> None:
         await self._client.aclose()

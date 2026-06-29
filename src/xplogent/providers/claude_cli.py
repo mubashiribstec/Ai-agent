@@ -36,6 +36,10 @@ class ClaudeCLIProvider(Provider):
         super().__init__(model, **kwargs)
         self.cli = cli
 
+    async def list_models(self) -> list[str]:
+        # The CLI exposes fixed aliases through your subscription.
+        return ["sonnet", "opus", "haiku"]
+
     def _render(self, messages: list[Message]) -> tuple[str, str]:
         """Return (system_prompt, conversation_prompt) for a one-shot CLI call."""
         system_parts: list[str] = []

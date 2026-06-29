@@ -216,6 +216,26 @@ def create_app():
         rc, out = await asyncio.to_thread(_pull)
         return {"ok": rc == 0, "output": out}
 
+    @app.get("/providers/{name}/models")
+    async def provider_models(name: str) -> dict:
+        """Fetch a provider's live model catalog (using its configured key/host)."""
+        if name not in available_providers():
+            return {"models": [], "error": f"unknown provider '{name}'"}
+        try:
+            prov = build_provider(f"{name}:_")
+        except Exception as exc:  # noqa: BLE001
+            return {"models": [], "error": str(exc)}
+        error = ""
+        try:
+            models = await prov.list_models()
+        except Exception as exc:  # noqa: BLE001 - no key / network / 401 → surface, don't crash
+            models, error = [], str(exc)
+        finally:
+            await prov.aclose()
+        if not models and not error:
+            error = f"no models returned (is the {name} API key set?)"
+        return {"models": sorted(models), "error": error}
+
     # ── Vision: one-click local model + self-test ────────────────────────────
     @app.post("/vision/enable-local")
     async def vision_enable_local(body: dict | None = None) -> dict:

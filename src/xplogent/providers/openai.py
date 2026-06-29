@@ -140,5 +140,10 @@ class OpenAIProvider(Provider):
         resp.raise_for_status()
         return [item["embedding"] for item in resp.json()["data"]]
 
+    async def list_models(self) -> list[str]:
+        resp = await self._client.get("/models")
+        resp.raise_for_status()
+        return [str(d["id"]) for d in resp.json().get("data", []) if d.get("id")]
+
     async def aclose(self) -> None:
         await self._client.aclose()

@@ -107,6 +107,11 @@ class OllamaProvider(Provider):
                         tool_calls=tool_calls, usage=usage)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
+    async def list_models(self) -> list[str]:
+        resp = await self._client.get("/api/tags")
+        resp.raise_for_status()
+        return [str(m["name"]) for m in resp.json().get("models", []) if m.get("name")]
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for text in texts:

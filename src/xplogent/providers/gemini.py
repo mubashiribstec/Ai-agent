@@ -125,5 +125,15 @@ class GeminiProvider(Provider):
                         tool_calls=tool_calls, usage=usage)
         yield StreamEvent(kind=StreamKind.DONE, message=final)
 
+    async def list_models(self) -> list[str]:
+        resp = await self._client.get("/models", params={"pageSize": 1000})
+        resp.raise_for_status()
+        out = []
+        for m in resp.json().get("models", []):
+            name = str(m.get("name", "")).removeprefix("models/")
+            if name and "generateContent" in (m.get("supportedGenerationMethods") or []):
+                out.append(name)
+        return out
+
     async def aclose(self) -> None:
         await self._client.aclose()

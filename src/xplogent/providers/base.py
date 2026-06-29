@@ -184,5 +184,9 @@ class Provider(ABC):
         """Return embeddings for ``texts``. Override in providers that support it."""
         raise NotImplementedError(f"{self.name} does not support embeddings")
 
+    async def list_models(self) -> list[str]:
+        """Return the provider's available model ids. Override per provider."""
+        return []
+
     async def aclose(self) -> None:  # pragma: no cover - cleanup hook
         return None

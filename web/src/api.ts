@@ -405,6 +405,11 @@ export async function ollamaPull(model: string): Promise<{ ok: boolean; output?:
   })).json();
 }
 
+// ── Provider model discovery ──────────────────────────────────────────────────
+export async function getProviderModels(name: string): Promise<{ models: string[]; error: string }> {
+  return (await fetch(`/providers/${encodeURIComponent(name)}/models`)).json();
+}
+
 // ── Vision ────────────────────────────────────────────────────────────────────
 export async function enableLocalVision(model = "llava"): Promise<{ ok: boolean; vision_model?: string; error?: string }> {
   return (await fetch("/vision/enable-local", {

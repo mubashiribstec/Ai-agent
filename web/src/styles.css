@@ -537,6 +537,10 @@ label.check { display: flex; flex-direction: row; align-items: center; gap: var(
 .bud { display: flex; flex-direction: column; gap: 3px; }
 .bud input, .bud select { width: 150px; }
 
+/* ── Model browser ──────────────────────────────────────────────────────── */
+.model-browser li { gap: 6px; }
+.model-browser li button { padding: 3px 8px; font-size: var(--fz-xs); white-space: nowrap; }
+
 /* ── Triggers ───────────────────────────────────────────────────────────── */
 .linkx { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 4px;
   display: inline-flex; align-items: center; vertical-align: middle; }
