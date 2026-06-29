@@ -65,14 +65,14 @@ export function Settings() {
         <p className="dim">Providers: {(cfg.providers ?? []).join(", ")}</p>
       </div>
 
-      <Appearance />
-      <BackupCard flash={flash} reload={reload} />
-      <ExecutionBackend execution={cfg.execution ?? {}} onSave={save} />
-
       <ModelBrowser providers={cfg.providers ?? []} models={cfg.models ?? []}
         onAddPresets={async (m) => { await save({ models: m }); reload(); }}
         onSave={save} flash={flash} />
       <ModelsManager models={cfg.models ?? []} onSave={async (m) => { await save({ models: m }); reload(); }} />
+
+      <Appearance />
+      <BackupCard flash={flash} reload={reload} />
+      <ExecutionBackend execution={cfg.execution ?? {}} onSave={save} />
 
       <div className="card">
         <h3>API keys</h3>
