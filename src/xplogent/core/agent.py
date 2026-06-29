@@ -85,6 +85,7 @@ class Agent:
         self.session_tokens = {"input": 0, "output": 0}  # cumulative this agent
         self.session_cost = 0.0  # cumulative USD this agent (best-effort estimate)
         self._recalled_skills: set[str] = set()  # skills used this run (for proficiency)
+        self._injections: list[str] = []  # user suggestions to fold in mid-run (steering)
 
     def load_history(self, limit: int = 40) -> None:
         """Seed short-term memory from the persisted session so chat continues."""
@@ -114,6 +115,13 @@ class Agent:
     def cancel(self) -> None:
         self._cancelled = True
         self._pause.set()  # unblock if paused so the loop can exit
+
+    def inject(self, text: str) -> None:
+        """Queue a user suggestion to fold into the run at its next step (steering)."""
+        text = (text or "").strip()
+        if text:
+            self._injections.append(text)
+            self._pause.set()  # wake the loop if it happens to be paused
 
     async def _set_status(self, status: str) -> None:
         self.status = status
@@ -168,10 +176,12 @@ class Agent:
         transcript: list[str] = [f"USER: {task}"]
         tool_steps = 0
         final_answer = ""
+        nudged = False
 
         try:
             for step in range(self._max_steps):
                 await self._checkpoint()
+                self._drain_injections(transcript)  # fold in any mid-run suggestions
                 if await self._enforce_budget():
                     final_answer = "(stopped: cost budget reached)"
                     break
@@ -196,7 +206,16 @@ class Agent:
                     await self._emit(EventType.MESSAGE, content=assistant.content)
 
                 if not assistant.tool_calls:
-                    final_answer = assistant.content
+                    final_answer = (assistant.content or "").strip()
+                    if not final_answer and not nudged:
+                        # Empty reply with no tool calls — nudge once for a real answer.
+                        nudged = True
+                        self.stm.add(Message(role=Role.USER, content=(
+                            "Your reply was empty. Give your final answer to the user now.")))
+                        continue
+                    if not final_answer:
+                        final_answer = ("(the model returned an empty response — try "
+                                        "rephrasing or switching to another model)")
                     break
 
                 # Execute each requested tool through the safety gate.
@@ -212,21 +231,56 @@ class Agent:
                     )
                 self.stm.trim()
             else:
-                final_answer = "(stopped: reached the maximum number of steps)"
+                # Out of steps — synthesize a best-effort answer instead of nothing.
+                final_answer = (await self._final_synthesis(task)
+                                or "(stopped: reached the step limit without a final answer)")
         except CancelledByUser:
             final_answer = "(cancelled by user)"
             await self._set_status("cancelled")
             await self._emit(EventType.RUN_END, answer=final_answer, cancelled=True)
             return final_answer
+        except Exception as exc:  # noqa: BLE001 - a run must always return, never stall the chat
+            _log.exception("agent run failed")
+            final_answer = f"(run error: {exc})"
+            await self._emit(EventType.ERROR, message=str(exc))
 
-        if self.memory:
-            self.memory.log("assistant", final_answer)
-            self._record_skill_outcomes(final_answer)
+        # Always finish cleanly: persist, emit RUN_END, consolidate — guarded so a
+        # failure here can't leave the chat hanging.
+        try:
+            if self.memory:
+                self.memory.log("assistant", final_answer)
+                self._record_skill_outcomes(final_answer)
+        except Exception:  # noqa: BLE001
+            _log.exception("post-run logging failed")
         await self._set_status("done")
         await self._emit(EventType.RUN_END, answer=final_answer)
-        await self._post_task(task, "\n".join(transcript), tool_steps)
-        await self._maybe_compact_memory()
+        try:
+            await self._post_task(task, "\n".join(transcript), tool_steps)
+            await self._maybe_compact_memory()
+        except Exception:  # noqa: BLE001
+            _log.exception("post-task consolidation failed")
         return final_answer
+
+    def _drain_injections(self, transcript: list[str]) -> None:
+        """Fold queued user suggestions into the conversation before the next step."""
+        while self._injections:
+            hint = self._injections.pop(0)
+            self.stm.add(Message(role=Role.USER, content=hint))
+            transcript.append(f"USER (suggestion): {hint}")
+            if self.memory:
+                self.memory.log("user", hint)
+
+    async def _final_synthesis(self, task: str) -> str:
+        """One no-tools pass asking the model for its best answer from the work so far."""
+        messages = await self._build_messages(task)
+        messages.append(Message(role=Role.USER, content=(
+            "You've reached the step limit. Based on everything above, give the user your "
+            "best final answer now. Do not call any tools.")))
+        assistant = await self._stream_assistant(messages, [])
+        text = (assistant.content if assistant else "").strip()
+        if text:
+            await self._emit(EventType.MESSAGE, content=text)
+        return text
 
     async def _maybe_compact_memory(self) -> None:
         """Periodically distill MEMORY.md from history (off by default)."""

@@ -415,20 +415,34 @@ def create_app():
 
         forwarder = asyncio.create_task(forward())
 
+        running = {"on": False}
+
         async def handle_task(msg: dict) -> None:
-            gen_params = {k: msg[k] for k in ("effort", "thinking", "max_tokens", "temperature")
-                          if msg.get(k) is not None}
-            images = msg.get("images") or None
-            model = msg.get("model")
-            # Images need a model that can see: route image turns to the configured
-            # vision model unless the user explicitly picked one.
-            if images and not model:
-                vm = (load_config().vision_model or "").strip()
-                if vm:
-                    model = vm
-            runtime = await get_runtime(model, gen_params)
-            await runtime.agent.run(msg.get("task", ""), images=images)
-            await websocket.send_json({"type": "done"})
+            running["on"] = True
+            try:
+                gen_params = {k: msg[k] for k in ("effort", "thinking", "max_tokens", "temperature")
+                              if msg.get(k) is not None}
+                images = msg.get("images") or None
+                model = msg.get("model")
+                # Images need a model that can see: route image turns to the configured
+                # vision model unless the user explicitly picked one.
+                if images and not model:
+                    vm = (load_config().vision_model or "").strip()
+                    if vm:
+                        model = vm
+                runtime = await get_runtime(model, gen_params)
+                await runtime.agent.run(msg.get("task", ""), images=images)
+            except Exception as exc:  # noqa: BLE001 - never leave the chat stuck
+                try:
+                    await websocket.send_json({"type": "error", "message": f"run failed: {exc}"})
+                except Exception:  # noqa: BLE001
+                    pass
+            finally:
+                running["on"] = False
+                try:
+                    await websocket.send_json({"type": "done"})
+                except Exception:  # noqa: BLE001
+                    pass
 
         async def handle_council(msg: dict) -> None:
             """Ask several models the same question at once, then synthesize."""
@@ -494,12 +508,40 @@ def create_app():
                 store.close()
             await websocket.send_json({"type": "done"})
 
+        async def guarded(coro) -> None:
+            """Run a handler so it always ends the turn, even on failure."""
+            try:
+                await coro
+            except Exception as exc:  # noqa: BLE001
+                for payload in ({"type": "error", "message": str(exc)}, {"type": "done"}):
+                    try:
+                        await websocket.send_json(payload)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+        async def keepalive() -> None:
+            # Ping the client periodically so idle proxies don't drop a long turn.
+            while True:
+                await asyncio.sleep(20)
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:  # noqa: BLE001
+                    return
+
+        pinger = asyncio.create_task(keepalive())
+
         try:
             while True:
                 msg = await websocket.receive_json()
                 kind = msg.get("type")
-                if kind == "task" and len([m for m in msg.get("models", []) if m]) > 1:
-                    asyncio.create_task(handle_council(msg))
+                if kind == "steer" or (kind == "task" and running["on"]):
+                    # Mid-run suggestion: fold it into the active run instead of
+                    # starting a second one on the shared runtime.
+                    rt = current.get("runtime")
+                    if rt is not None:
+                        rt.agent.inject(str(msg.get("text") or msg.get("task") or ""))
+                elif kind == "task" and len([m for m in msg.get("models", []) if m]) > 1:
+                    asyncio.create_task(guarded(handle_council(msg)))
                 elif kind == "task":
                     asyncio.create_task(handle_task(msg))
                 elif kind == "cancel":
@@ -513,6 +555,7 @@ def create_app():
         except WebSocketDisconnect:
             pass
         finally:
+            pinger.cancel()
             await bus.close()
             forwarder.cancel()
             if current["runtime"] is not None:

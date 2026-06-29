@@ -59,6 +59,7 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   const voice = useVoice();
   const [handsFree, setHandsFree] = useState(false);
   const handsFreeRef = useRef(false);
+  const busyRef = useRef(false);
 
   const pushAssistantToken = (text: string) =>
     setLog((l) => {
@@ -121,9 +122,23 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
     searchMemory(q).then((r) => setHits(r.messages ?? [])).catch(() => setHits([]));
   };
 
+  // Recover if the socket drops mid-run: the in-flight run can't stream to the new
+  // connection, so clear the stuck "busy" and reload the persisted conversation.
+  const onStatus = (s: ConnStatus) => {
+    setConn(s);
+    if (s === "online" && busyRef.current) {
+      busyRef.current = false; setBusy(false);
+      if (sessionId.current) {
+        getSessionMessages(sessionId.current)
+          .then((r) => setLog(r.messages.map((m: any) => ({ kind: m.role === "user" ? "user" : "assistant", text: m.content }))))
+          .catch(() => {});
+      }
+    }
+  };
+
   const connect = () => {
     sock.current?.close();
-    sock.current = new XplogentSocket(handleEvent, sessionId.current, setConn);
+    sock.current = new XplogentSocket(handleEvent, sessionId.current, onStatus);
   };
 
   const loadSession = (id: number | null) => {
@@ -144,6 +159,7 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
     return () => { sock.current?.close(); voice.stopListening(); voice.cancelSpeak(); };
   }, []);
   useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [log]);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
 
   const newChat = async () => {
     // End-of-conversation save: flush skills to the folder + distill MEMORY.md.
@@ -179,7 +195,16 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
   const send = () => {
     const cmd = input.trim().match(/^\/undo(?:\s+(\d+))?$/i);
     if (cmd) { undo(Number(cmd[1] || 1)); setInput(""); return; }
+    if (busy) { steer(input); return; }   // mid-run: send a suggestion, don't start a new run
     sendText(input);
+  };
+
+  // Nudge the running agent with a suggestion (folded into its next step).
+  const steer = (text: string) => {
+    if (!text.trim()) return;
+    sock.current?.sendSteer(text.trim());
+    setLog((l) => [...l, { kind: "user", text: `💡 ${text.trim()}` }]);
+    setInput("");
   };
 
   // Roll back the last N exchanges (also typed as "/undo [N]").
@@ -357,7 +382,7 @@ export function Chat({ sidebarOpen }: { sidebarOpen?: boolean }) {
               <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }}
                 onChange={(e) => e.target.files && addFiles(e.target.files)} />
               <textarea rows={1} value={input + (voice.listening && voice.interim ? ` ${voice.interim}` : "")}
-                placeholder={handsFree ? "Listening… just talk" : "Message Xplogent…  (Enter to send, Shift+Enter for newline)"}
+                placeholder={handsFree ? "Listening… just talk" : busy ? "Add a suggestion… (Enter to nudge the agent)" : "Message Xplogent…  (Enter to send, Shift+Enter for newline)"}
                 onChange={(e) => setInput(e.target.value)}
                 onPaste={(e) => { const imgs = [...e.clipboardData.files]; if (imgs.length) addFiles(imgs); }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />

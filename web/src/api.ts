@@ -105,6 +105,7 @@ export class XplogentSocket {
   }
 
   cancel() { this.send({ type: "cancel" }); }
+  sendSteer(text: string) { this.send({ type: "steer", text }); }
   resolveApproval(id: string, allowed: boolean) { this.send({ type: "approval", id, allowed }); }
 
   close() { this.closed = true; this.ws.close(); }
