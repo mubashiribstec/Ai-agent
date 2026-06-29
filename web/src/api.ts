@@ -300,7 +300,7 @@ export async function promoteEval(body: { system_prompt?: string; model?: string
 // ── Chrome extension (real-browser control) ───────────────────────────────────
 export interface BrowserTab { id: number; title: string; url: string; active: boolean; }
 export interface InputActivity { field: string; type: string; page: string; url: string; redacted?: boolean; ts?: number; }
-export interface ExtensionStatus { connected: boolean; tabs: BrowserTab[]; inputs: InputActivity[]; last_seen: number; }
+export interface ExtensionStatus { connected: boolean; stale?: boolean; tabs: BrowserTab[]; inputs: InputActivity[]; last_seen: number; }
 export async function getExtensionStatus(): Promise<ExtensionStatus> {
   return (await fetch("/extension/status")).json();
 }

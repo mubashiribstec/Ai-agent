@@ -3,7 +3,7 @@
   "name": "Xplogent Browser Control",
   "version": "1.0.0",
   "description": "Let your Xplogent agent see your open tabs and control your real Chrome browser.",
-  "permissions": ["tabs", "scripting", "activeTab", "storage"],
+  "permissions": ["tabs", "scripting", "activeTab", "storage", "alarms"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Xplogent" },

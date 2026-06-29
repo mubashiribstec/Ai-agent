@@ -80,3 +80,31 @@ async def test_tool_routes_through_bridge(monkeypatch):
 
     res = await BrowserExtensionTool().run(action="read")
     assert res.ok and "page text here" in res.output
+
+
+def test_extension_websocket_end_to_end(tmp_path, monkeypatch):
+    """The /ws/extension endpoint accepts a connection, ingests a snapshot,
+    answers a ping, and /extension/status reflects connect + disconnect."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from xplogent.core.extension import get_bridge
+    from xplogent.interfaces.api.server import create_app
+
+    monkeypatch.setenv("XPLOGENT_HOME", str(tmp_path))
+    get_bridge().detach(get_bridge()._ws)  # reset the process-wide singleton
+    c = TestClient(create_app())
+
+    assert c.get("/extension/status").json()["connected"] is False
+    with c.websocket_connect("/ws/extension") as ws:
+        ws.send_json({"type": "snapshot",
+                      "tabs": [{"id": 1, "title": "GitHub", "url": "https://github.com", "active": True}],
+                      "inputs": [{"field": "q", "type": "search", "page": "GitHub", "url": "https://github.com"}]})
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["type"] == "pong"   # ordered barrier: snapshot is processed
+        st = c.get("/extension/status").json()
+        assert st["connected"] is True
+        assert st["tabs"][0]["title"] == "GitHub"
+        assert st["inputs"][-1]["field"] == "q"
+
+    assert c.get("/extension/status").json()["connected"] is False  # detached on disconnect

@@ -22,6 +22,8 @@ async function pushTabs() {
 }
 
 async function connect() {
+  // Never open a second socket while one is already connecting/open.
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
   const s = await getSettings();
   monitoring = s.monitoring !== false;
   let url = s.serverUrl || DEFAULT_URL;
@@ -34,7 +36,7 @@ async function connect() {
   }
   ws.onopen = () => { retry = 0; pushTabs(); };
   ws.onmessage = (m) => handleCommand(JSON.parse(m.data));
-  ws.onclose = () => scheduleReconnect();
+  ws.onclose = () => { ws = null; scheduleReconnect(); };
   ws.onerror = () => { try { ws.close(); } catch (_) { /* noop */ } };
 }
 
@@ -114,5 +116,19 @@ chrome.tabs.onRemoved.addListener(() => pushTabs());
 chrome.runtime.onMessage.addListener((m) => {
   if (m && m.type === "input_activity" && monitoring) send({ type: "snapshot", inputs: [m.data] });
 });
+
+// MV3 service workers are killed after ~30s idle, which would silently drop the
+// socket. A periodic alarm wakes the worker to reconnect (if dropped) or ping
+// (to keep the connection — and the worker — alive).
+chrome.alarms.create("xplogent-keepalive", { periodInMinutes: 0.4 }); // ~24s
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name !== "xplogent-keepalive") return;
+  if (!ws || ws.readyState === WebSocket.CLOSED) connect();
+  else if (ws.readyState === WebSocket.OPEN) send({ type: "ping" });
+});
+
+// Reconnect promptly when Chrome starts or the extension is (re)installed.
+chrome.runtime.onStartup.addListener(connect);
+chrome.runtime.onInstalled.addListener(connect);
 
 connect();

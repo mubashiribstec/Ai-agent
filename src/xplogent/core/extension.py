@@ -61,18 +61,27 @@ class ExtensionBridge:
             raise ConnectionError("no browser extension connected")
         self._n += 1
         rid = f"r{self._n}"
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[rid] = fut
-        await self._ws.send_json({"type": "command", "id": rid, "action": action,
-                                  "params": params or {}})
+        try:
+            await self._ws.send_json({"type": "command", "id": rid, "action": action,
+                                      "params": params or {}})
+        except Exception as exc:  # noqa: BLE001 - socket died between connect check and send
+            self._pending.pop(rid, None)
+            return {"ok": False, "data": f"extension send failed: {exc}"}
         try:
             return await asyncio.wait_for(fut, timeout)
         except TimeoutError:
             self._pending.pop(rid, None)
             return {"ok": False, "data": f"extension timed out after {timeout}s"}
 
+    def mark_seen(self) -> None:
+        self.last_seen = time.time()
+
     def status(self) -> dict:
-        return {"connected": self.connected, "tabs": self.tabs,
+        # Connected but silent for a while → likely a suspended MV3 worker.
+        stale = self.connected and (time.time() - self.last_seen > 60)
+        return {"connected": self.connected, "stale": stale, "tabs": self.tabs,
                 "inputs": self.inputs[-25:], "last_seen": self.last_seen}
 
 

@@ -22,7 +22,8 @@ export function Browser() {
         <div className="page-head">
           <h1><MonitorSmartphone size={22} /> Browser</h1>
           <div className="row" style={{ gap: 8 }}>
-            <span className={`badge ${connected ? "ok" : "bad"}`}>{connected ? "extension connected" : "not connected"}</span>
+            <span className={`badge ${connected ? (st?.stale ? "warn" : "ok") : "bad"}`}>
+              {connected ? (st?.stale ? "reconnecting…" : "extension connected") : "not connected"}</span>
             <button className="icon-btn" onClick={reload} aria-label="refresh"><RefreshCw size={16} /></button>
           </div>
         </div>

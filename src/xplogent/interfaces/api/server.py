@@ -566,6 +566,9 @@ def create_app():
                     bridge.update_snapshot(msg.get("tabs"), msg.get("inputs"))
                 elif kind == "result":
                     bridge.resolve(str(msg.get("id", "")), bool(msg.get("ok")), msg.get("data"))
+                elif kind == "ping":
+                    bridge.mark_seen()
+                    await websocket.send_json({"type": "pong"})
         except WebSocketDisconnect:
             pass
         finally:
